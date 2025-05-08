@@ -1,0 +1,8 @@
+user: root
+password: hao18246189618
+host: 111.229.181.178
+port: 3306
+dbname: graduation_project
+charset: utf8mb4
+parseTime: true
+loc: Local
