@@ -12,14 +12,13 @@ const TableNameUser = "users"
 
 // User mapped from table <users>
 type User struct {
-	ID           int32     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	Username     string    `gorm:"column:username;not null" json:"username"`
-	PasswordHash string    `gorm:"column:password_hash;not null" json:"password_hash"`
-	Email        string    `gorm:"column:email" json:"email"`
-	Role         string    `gorm:"column:role;not null;default:user" json:"role"`
-	LastLoginAt  time.Time `gorm:"column:last_login_at" json:"last_login_at"`
-	CreatedAt    time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
-	UpdatedAt    time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
+	ID        int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	Username  string    `gorm:"column:username;not null" json:"username"`
+	Password  string    `gorm:"column:password;not null" json:"password"`
+	Email     string    `gorm:"column:email" json:"email"`
+	Role      string    `gorm:"column:role;not null;default:user" json:"role"`
+	CreatedAt time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
 }
 
 // TableName User's table name

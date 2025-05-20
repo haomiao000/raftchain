@@ -7,6 +7,7 @@ import (
 
 	"main/library/ext"
 	"main/library/resource"
+	"main/library/query"
 
 	"github.com/spf13/viper"
 	"gorm.io/driver/mysql"
@@ -14,8 +15,10 @@ import (
 	"gorm.io/gorm"
 )
 
-func InitBootStrap() {
-	initGormModel()
+func InitBootStrap(modelInit bool) {
+	if modelInit {
+		initGormModel()
+	}
 	initGorm()
 
 }
@@ -56,6 +59,7 @@ func initGorm() {
 		log.Fatalf("MySQL 初始化失败: %v", err)
 	}
 	resource.GormServe = db
+	query.SetDefault(db)
 }
 
 func loadConfig(fileName string, configPtr interface{}) {
