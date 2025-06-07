@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - Raft 区块链监控系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.2/css/all.min.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f3f4f6; /* bg-gray-100 */
+        }
+        .form-container {
+            max-width: 400px;
+            width: 100%;
+        }
+        .feedback {
+            min-height: 1.25rem; /* h-5 */
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container bg-white p-8 rounded-lg shadow-md">
+        <h2 id="form-title" class="text-2xl font-bold text-center text-gray-700 mb-6">用户登录</h2>
+
+        <form id="login-form" class="space-y-4">
+            <div>
+                <label for="login-username" class="block text-sm font-medium text-gray-700">用户名:</label>
+                <input type="text" id="login-username" name="username" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label for="login-password" class="block text-sm font-medium text-gray-700">密码:</label>
+                <input type="password" id="login-password" name="password" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <button type="submit" id="login-submit-btn"
+                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    <i class="fa-solid fa-sign-in-alt fa-fw mr-2"></i>登录
+                </button>
+            </div>
+            <div id="login-feedback" class="feedback text-sm text-center"></div>
+            <div class="text-sm text-center text-gray-600">
+                <button type="button" id="show-change-password-btn" class="font-medium text-blue-600 hover:text-blue-500">重置密码</button>
+            </div>
+            <p class="text-sm text-center text-gray-600">
+                还没有账户? <button type="button" id="show-register-form-btn" class="font-medium text-blue-600 hover:text-blue-500">立即注册</button>
+            </p>
+        </form>
+
+        <form id="register-form" class="space-y-4 hidden">
+            <div>
+                <label for="register-username" class="block text-sm font-medium text-gray-700">用户名:</label>
+                <input type="text" id="register-username" name="username" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label for="register-email" class="block text-sm font-medium text-gray-700">邮箱:</label>
+                <input type="email" id="register-email" name="email" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label for="register-password" class="block text-sm font-medium text-gray-700">密码:</label>
+                <input type="password" id="register-password" name="password" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label for="register-confirm-password" class="block text-sm font-medium text-gray-700">确认密码:</label>
+                <input type="password" id="register-confirm-password" name="confirmPassword" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <button type="submit" id="register-submit-btn"
+                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    <i class="fa-solid fa-user-plus fa-fw mr-2"></i>注册
+                </button>
+            </div>
+            <div id="register-feedback" class="feedback text-sm text-center"></div>
+            <p class="text-sm text-center text-gray-600">
+                已有账户? <button type="button" id="show-login-form-btn" class="font-medium text-blue-600 hover:text-blue-500">返回登录</button>
+            </p>
+        </form>
+
+        <form id="change-password-form" class="space-y-4 hidden">
+            <div>
+                <label for="change-username" class="block text-sm font-medium text-gray-700">用户名:</label>
+                <input type="text" id="change-username" name="username" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label for="change-email" class="block text-sm font-medium text-gray-700">注册邮箱:</label>
+                <input type="email" id="change-email" name="email" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label for="change-old-password" class="block text-sm font-medium text-gray-700">原密码:</label>
+                <input type="password" id="change-old-password" name="password" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label for="change-new-password" class="block text-sm font-medium text-gray-700">新密码:</label>
+                <input type="password" id="change-new-password" name="new_password" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <label for="change-confirm-new-password" class="block text-sm font-medium text-gray-700">确认新密码:</label>
+                <input type="password" id="change-confirm-new-password" name="confirm_new_password" required
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            <div>
+                <button type="submit" id="change-password-submit-btn"
+                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500">
+                    <i class="fa-solid fa-check-circle fa-fw mr-2"></i>确认重置密码
+                </button>
+            </div>
+            <div id="change-password-feedback" class="feedback text-sm text-center"></div>
+             <p class="text-sm text-center text-gray-600">
+                想起来了? <button type="button" id="show-login-form-btn-from-change" class="font-medium text-blue-600 hover:text-blue-500">返回登录</button>
+            </p>
+        </form>
+
+    </div>
+
+    <script>
+        const BACKEND_BASE_URL = 'http://127.0.0.1:8080';
+
+        // Form elements
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const changePasswordForm = document.getElementById('change-password-form');
+        const formTitle = document.getElementById('form-title');
+
+        // Buttons to switch forms
+        const showRegisterBtn = document.getElementById('show-register-form-btn');
+        const showLoginBtn = document.getElementById('show-login-form-btn');
+        const showChangePasswordBtn = document.getElementById('show-change-password-btn');
+        const showLoginFromChangeBtn = document.getElementById('show-login-form-btn-from-change');
+
+        // Feedback divs
+        const loginFeedback = document.getElementById('login-feedback');
+        const registerFeedback = document.getElementById('register-feedback');
+        const changePasswordFeedback = document.getElementById('change-password-feedback');
+
+        // Submit buttons
+        const loginSubmitBtn = document.getElementById('login-submit-btn');
+        const registerSubmitBtn = document.getElementById('register-submit-btn');
+        const changePasswordSubmitBtn = document.getElementById('change-password-submit-btn');
+
+        // --- Utility Functions ---
+        function setButtonLoading(button, text = '处理中...') {
+            button.disabled = true;
+            button.innerHTML = `<i class="fa-solid fa-spinner fa-spin fa-fw"></i> ${text}`;
+        }
+
+        function resetButton(button, originalHTML) {
+            button.disabled = false;
+            button.innerHTML = originalHTML;
+        }
+
+        function showFeedback(element, message, isError = true) {
+            element.textContent = message;
+            element.className = 'feedback text-sm text-center'; // Reset classes
+            if (isError) {
+                element.classList.add('text-red-600');
+            } else {
+                 element.classList.add('text-green-600');
+            }
+        }
+
+        function clearAllFeedback() {
+            loginFeedback.textContent = '';
+            registerFeedback.textContent = '';
+            changePasswordFeedback.textContent = '';
+        }
+
+        // --- View Switching ---
+        function showForm(formId) {
+            clearAllFeedback();
+            [loginForm, registerForm, changePasswordForm].forEach(form => {
+                if (form.id === formId) {
+                    form.classList.remove('hidden');
+                } else {
+                    form.classList.add('hidden');
+                }
+            });
+
+            switch (formId) {
+                case 'login-form':
+                    formTitle.textContent = '用户登录';
+                    break;
+                case 'register-form':
+                    formTitle.textContent = '创建新账户';
+                    break;
+                case 'change-password-form':
+                    formTitle.textContent = '重置密码';
+                    break;
+            }
+        }
+
+        // --- Event Listeners for switching forms ---
+        showRegisterBtn.addEventListener('click', () => showForm('register-form'));
+        showLoginBtn.addEventListener('click', () => showForm('login-form'));
+        showChangePasswordBtn.addEventListener('click', () => showForm('change-password-form'));
+        showLoginFromChangeBtn.addEventListener('click', () => showForm('login-form'));
+
+        // Check auth status on load
+        if (localStorage.getItem('authToken')) {
+            window.location.href = 'index.html';
+        }
+
+        // --- API Handlers (Form Submissions) ---
+
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const originalBtnHTML = loginSubmitBtn.innerHTML;
+            setButtonLoading(loginSubmitBtn);
+            const username = loginForm.username.value;
+            const password = loginForm.password.value;
+
+            try {
+                const response = await fetch(`${BACKEND_BASE_URL}/api/v2/user/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                });
+                const result = await response.json();
+
+                if (response.ok && result.data && result.data.token) {
+                    showFeedback(loginFeedback, result.msg || '登录成功！正在跳转...', false);
+                    localStorage.setItem('authToken', result.data.token);
+                    localStorage.setItem('username', result.data.username);
+                    localStorage.setItem('userId', result.data.user_id);
+                    setTimeout(() => {
+                        window.location.href = 'index.html';
+                    }, 1000);
+                } else {
+                    throw new Error(result.error || result.msg || '登录失败');
+                }
+            } catch (error) {
+                showFeedback(loginFeedback, `登录错误: ${error.message}`);
+                resetButton(loginSubmitBtn, originalBtnHTML);
+            }
+        });
+
+        registerForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const originalBtnHTML = registerSubmitBtn.innerHTML;
+            setButtonLoading(registerSubmitBtn);
+            const username = registerForm.username.value;
+            const email = registerForm.email.value;
+            const password = registerForm.password.value;
+            const confirmPassword = registerForm.confirmPassword.value;
+
+            if (password !== confirmPassword) {
+                showFeedback(registerFeedback, '两次输入的密码不匹配。');
+                resetButton(registerSubmitBtn, originalBtnHTML);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${BACKEND_BASE_URL}/api/v2/user/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password }),
+                });
+                const result = await response.json();
+
+                if (response.ok && result.message === "用户注册成功") {
+                    showFeedback(registerFeedback, '注册成功！请前往登录。', false);
+                    registerForm.reset();
+                    setTimeout(() => showForm('login-form'), 1500);
+                } else {
+                    throw new Error(result.error || '注册失败');
+                }
+            } catch (error) {
+                showFeedback(registerFeedback, `注册错误: ${error.message}`);
+            } finally {
+                resetButton(registerSubmitBtn, originalBtnHTML);
+            }
+        });
+        
+        changePasswordForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const originalBtnHTML = changePasswordSubmitBtn.innerHTML;
+            setButtonLoading(changePasswordSubmitBtn, '正在重置...');
+
+            const username = document.getElementById('change-username').value;
+            const email = document.getElementById('change-email').value;
+            const password = document.getElementById('change-old-password').value;
+            const new_password = document.getElementById('change-new-password').value;
+            const confirm_new_password = document.getElementById('change-confirm-new-password').value;
+
+            if (new_password !== confirm_new_password) {
+                showFeedback(changePasswordFeedback, '两次输入的新密码不匹配。');
+                resetButton(changePasswordSubmitBtn, originalBtnHTML);
+                return;
+            }
+
+            if (new_password.length < 6) {
+                showFeedback(changePasswordFeedback, '新密码长度不能少于6位。');
+                resetButton(changePasswordSubmitBtn, originalBtnHTML);
+                return;
+            }
+
+            try {
+                const response = await fetch(`${BACKEND_BASE_URL}/api/v2/user/change-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password, new_password }),
+                });
+                const result = await response.json();
+
+                if (response.ok) {
+                    showFeedback(changePasswordFeedback, result.message || '密码重置成功！请使用新密码登录。', false);
+                    changePasswordForm.reset();
+                    setTimeout(() => showForm('login-form'), 2000);
+                } else {
+                     throw new Error(result.error || '重置失败，请检查所有字段是否正确。');
+                }
+            } catch (error) {
+                showFeedback(changePasswordFeedback, `重置错误: ${error.message}`);
+            } finally {
+                resetButton(changePasswordSubmitBtn, originalBtnHTML);
+            }
+        });
+
+    </script>
+</body>
+</html>

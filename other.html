@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raft 区块链监控系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.2/css/all.min.css">
+    <style>
+        .active-nav-btn {
+            background-color: #2461e6; /* 蓝色背景 */
+            color: white;
+        }
+        .active-nav-btn:hover {
+            background-color: #1c4db3; /* 深一点的蓝色 */
+        }
+        .sidebar-nav-btn {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            padding: 0.75rem 1rem; /* 12px 16px */
+            border-radius: 0.375rem; /* 6px */
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+        }
+        .sidebar-nav-btn:hover {
+            background-color: #374151; /* 深灰色，用于侧边栏悬停 */
+        }
+        .log-entry { @apply bg-white p-3 border border-gray-200 rounded mb-2 shadow-sm relative text-sm; }
+        .log-timestamp { @apply text-gray-500 text-xs font-sans; }
+        .log-message { @apply text-gray-800 py-1; }
+        .log-level { @apply text-xs font-semibold ml-1 mr-1 px-1.5 py-0.5 rounded absolute top-2 right-2; }
+        .log-level-info { background-color: #bae6fd; color: #0c546e; }
+        .log-level-success { background-color: #d1fae5; color: #065f46; }
+        .log-level-warning { background-color: #fef3c7; color: #92400e; }
+        .log-level-error { background-color: #fee2e2; color: #991b1b; }
+        .placeholder-text { @apply text-gray-500 italic text-center p-6; }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f; /* 蓝色加载条 */
+            margin: 40px auto;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* 初始隐藏主应用内容和导航，直到认证检查完成 */
+        .main-application-content,
+        .main-application-sidebar,
+        .main-application-header {
+            display: none;
+        }
+        .btn { @apply font-bold py-2 px-4 rounded transition duration-150 ease-in-out text-sm; }
+        .btn-primary { @apply bg-blue-600 hover:bg-blue-700 text-white; }
+        .btn-secondary { @apply bg-gray-500 hover:bg-gray-600 text-white; }
+        .btn-danger { @apply bg-red-500 hover:bg-red-600 text-white; }
+        .btn-success { @apply bg-green-500 hover:bg-green-600 text-white; }
+        .btn-warning { @apply bg-yellow-500 hover:bg-yellow-600 text-black; }
+        .btn-purple { @apply bg-purple-500 hover:bg-purple-600 text-white; }
+
+        .card { @apply bg-white p-4 border border-gray-200 rounded-lg shadow-md relative; }
+        .table-header { @apply border border-gray-300 p-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider; }
+        .table-cell { @apply border border-gray-300 p-2 font-mono text-sm; }
+
+        /* 确保在小屏幕上侧边栏可以切换显示/隐藏 */
+        @media (max-width: 768px) {
+            .main-application-sidebar {
+                /* 在 JS 中控制显示/隐藏 */
+                position: fixed;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease-in-out;
+                z-index: 40; /* 高于内容，低于可能的遮罩层 */
+            }
+            .sidebar-open {
+                transform: translateX(0);
+            }
+            .main-content-area {
+                margin-left: 0 !important; /* 小屏幕时，内容区占满 */
+            }
+            .mobile-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0,0,0,0.5);
+                z-index: 30; /* 低于侧边栏 */
+                display: none; /* JS控制 */
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex min-h-screen antialiased">
+
+    <div id="mobile-overlay" class="mobile-overlay"></div>
+
+    <aside id="sidebar" class="w-64 bg-gray-800 text-white p-4 space-y-2 fixed top-0 left-0 h-full overflow-y-auto main-application-sidebar md:sticky md:translate-x-0">
+        <div class="flex items-center justify-between mb-6">
+            <h1 class="text-xl font-bold text-center flex-grow">Raft监控</h1>
+            <button id="mobile-close-sidebar-btn" class="md:hidden text-gray-400 hover:text-white">
+                <i class="fa-solid fa-times fa-lg"></i>
+            </button>
+        </div>
+        <nav id="main-navigation-items" class="flex flex-col space-y-1">
+            <button id="dashboard-btn" class="sidebar-nav-btn active-nav-btn" onclick="showSection('dashboard', this)"><i class="fa-solid fa-gauge fa-fw mr-3 w-5 text-center"></i> 仪表盘</button>
+            <button id="blockchain-explorer-btn" class="sidebar-nav-btn" onclick="showSection('blockchain-explorer', this)"><i class="fa-solid fa-cubes fa-fw mr-3 w-5 text-center"></i> 区块浏览器</button>
+            <button id="transaction-btn" class="sidebar-nav-btn" onclick="showSection('transaction', this)"><i class="fa-solid fa-arrow-right-arrow-left fa-fw mr-3 w-5 text-center"></i> 交易中心</button>
+            <button id="system-detection-btn" class="sidebar-nav-btn" onclick="showSection('system-detection', this)"><i class="fa-solid fa-sliders fa-fw mr-3 w-5 text-center"></i> 系统控制</button>
+        </nav>
+        <div class="mt-auto pt-6 border-t border-gray-700">
+            <div id="user-info-sidebar" class="text-sm mb-3 px-2">
+                <p>用户: <span id="sidebar-username" class="font-semibold">未登录</span></p>
+            </div>
+            <button id="logout-btn" class="w-full bg-red-600 hover:bg-red-700 text-white p-2 rounded text-sm flex items-center justify-center">
+                <i class="fa-solid fa-sign-out-alt fa-fw mr-2"></i> 安全登出
+            </button>
+        </div>
+    </aside>
+
+    <div id="main-content-area" class="flex-1 flex flex-col md:ml-64 transition-all duration-300 ease-in-out">
+        <header class="w-full bg-white text-gray-800 shadow-sm p-4 flex justify-between items-center sticky top-0 z-20 border-b main-application-header">
+            <button id="mobile-open-sidebar-btn" class="md:hidden text-gray-600 hover:text-blue-600 mr-3">
+                <i class="fa-solid fa-bars fa-lg"></i>
+            </button>
+            <h2 id="current-section-title" class="text-xl font-semibold">仪表盘</h2>
+            <div class="text-sm text-gray-500">系统时间: <span id="current-time">--:--:--</span></div>
+        </header>
+
+        <main class="w-full p-4 md:p-6 flex-grow main-application-content overflow-y-auto">
+            <section id="dashboard" class="space-y-6">
+                <div>
+                    <h2 class="text-xl font-semibold mb-3 text-gray-700">节点状态监控</h2>
+                    <div id="node-status-container" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 min-h-[150px]">
+                        <div class="spinner"></div>
+                    </div>
+                </div>
+                <div>
+                    <h2 class="text-xl font-semibold mb-1 text-gray-700">系统事件日志</h2>
+                    <div id="log-filters" class="bg-white p-3 rounded border mb-3 flex flex-wrap gap-x-4 gap-y-2 items-center text-sm shadow-sm">
+                        <div>
+                            <label for="log-node-filter" class="font-medium mr-1 text-gray-600">节点:</label>
+                            <select id="log-node-filter" class="p-1.5 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">所有节点</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="log-level-filter" class="font-medium mr-1 text-gray-600">级别:</label>
+                            <select id="log-level-filter" class="p-1.5 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">所有级别</option>
+                                <option value="INFO">INFO</option>
+                                <option value="SUCCESS">SUCCESS</option>
+                                <option value="WARNING">WARNING</option>
+                                <option value="ERROR">ERROR</option>
+                            </select>
+                        </div>
+                        <button id="apply-log-filter-btn" class="btn btn-primary py-1.5 px-3"><i class="fa-solid fa-filter fa-fw mr-1"></i>筛选</button>
+                        <button id="clear-log-filter-btn" class="btn btn-secondary py-1.5 px-3"><i class="fa-solid fa-times fa-fw mr-1"></i>清除</button>
+                    </div>
+                    <div id="system-log-timeline" class="bg-gray-50 p-3 rounded max-h-96 overflow-y-auto border min-h-[200px] shadow-inner">
+                        <div class="spinner"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="blockchain-explorer" class="hidden space-y-6">
+                <div id="block-list-view">
+                    <div class="flex justify-between items-center mb-4">
+                         <h2 class="text-xl font-semibold text-gray-700">区块列表</h2>
+                         <button id="refresh-blocks-btn" class="btn btn-primary"><i class="fa-solid fa-arrows-rotate fa-fw mr-1"></i> 刷新</button>
+                    </div>
+                    <div class="overflow-x-auto bg-white rounded shadow-md">
+                        <table class="w-full text-sm border-collapse">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="table-header">高度</th>
+                                    <th class="table-header">时间戳</th>
+                                    <th class="table-header">区块哈希</th>
+                                    <th class="table-header">交易数</th>
+                                    <th class="table-header">提议节点ID</th>
+                                    <th class="table-header text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="block-list-table">
+                                <tr><td colspan="6"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                         <div id="block-list-pagination" class="flex justify-center p-4 text-sm"></div>
+                    </div>
+                </div>
+
+                <div id="block-details-view" class="hidden card">
+                    <div class="flex items-center justify-between mb-4 border-b pb-3">
+                        <h2 class="text-xl font-semibold text-gray-700">区块详情: #<span id="detail-block-height"></span></h2>
+                        <button id="back-to-block-list-btn" class="btn btn-secondary"><i class="fa-solid fa-arrow-left fa-fw mr-1"></i> 返回列表</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                        <p><strong>区块高度:</strong> <span id="detail-block-height-val"></span></p>
+                        <p><strong>时间戳:</strong> <span id="detail-block-timestamp"></span></p>
+                        <p class="md:col-span-2"><strong>区块哈希:</strong> <code id="detail-block-hash" class="text-xs break-all bg-gray-100 p-1 rounded"></code></p>
+                        <p class="md:col-span-2"><strong>前一区块哈希:</strong> <code id="detail-block-prevhash" class="text-xs break-all bg-gray-100 p-1 rounded"></code></p>
+                        <p><strong>交易数量:</strong> <span id="detail-block-txcount"></span></p>
+                        <p><strong>Raft任期:</strong> <span id="detail-block-term"></span></p>
+                        <p><strong>提议节点ID:</strong> <span id="detail-block-proposer"></span></p>
+                        <p><strong>区块大小:</strong> <span id="detail-block-size"></span></p>
+                    </div>
+                    <div class="mt-6">
+                        <h3 class="text-lg font-semibold mb-2 text-gray-600">区块内交易</h3>
+                        <div id="detail-block-transactions-list" class="max-h-80 overflow-y-auto border rounded p-2 bg-gray-50 min-h-[50px]">
+                            <div class="placeholder-text">暂无交易或加载中...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="transaction-details-view" class="hidden card mt-6">
+                     <div class="flex items-center justify-between mb-4 border-b pb-3">
+                        <h2 class="text-xl font-semibold text-gray-700">交易详情</h2>
+                        <button id="back-from-tx-detail-btn" class="btn btn-secondary"><i class="fa-solid fa-arrow-left fa-fw mr-1"></i> 返回</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                        <p class="md:col-span-2"><strong>交易哈希 (ID):</strong> <code id="detail-tx-hash" class="text-xs break-all bg-gray-100 p-1 rounded"></code></p>
+                        <p><strong>时间戳:</strong> <span id="detail-tx-timestamp"></span></p>
+                        <p><strong>所属区块高度:</strong> <span id="detail-tx-blockheight"></span></p>
+                        <p><strong>类型:</strong> <span id="detail-tx-type"></span></p>
+                        <p><strong>发送者公钥:</strong> <code id="detail-tx-senderpk" class="text-xs break-all bg-gray-100 p-1 rounded"></code></p>
+                        <p><strong>状态:</strong> <span id="detail-tx-status"></span></p>
+                        <p class="md:col-span-2"><strong>载荷 (Payload):</strong> <pre id="detail-tx-payload" class="text-xs bg-gray-100 p-2 rounded max-h-40 overflow-y-auto"></pre></p>
+                    </div>
+                </div>
+            </section>
+
+            <section id="transaction" class="hidden bg-white rounded shadow-md p-6 space-y-6">
+                 <h2 class="text-xl font-semibold mb-4 border-b pb-3 text-gray-700">交易中心</h2>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div>
+                        <h3 class="text-lg font-semibold mb-3 text-gray-600">提交新交易</h3>
+                        <form id="transaction-form" class="space-y-4">
+                            <div>
+                                <label for="tx-type" class="text-sm font-bold block mb-1 text-gray-600">交易类型:</label>
+                                <input type="text" id="tx-type" name="type" value="transfer" required class="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label for="tx-key" class="text-sm font-bold block mb-1 text-gray-600">内容/Key (JSON):</label>
+                                <textarea id="tx-key" name="key" rows="3" required class="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder='{"to":"address_receiver", "amount": 100}'></textarea>
+                            </div>
+                             <div>
+                                <label for="tx-sender-pk" class="text-sm font-bold block mb-1 text-gray-600">发送者公钥 (模拟):</label>
+                                <input type="text" id="tx-sender-pk" name="senderPublicKey" value="mock_sender_public_key_123" required class="w-full p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <button type="submit" id="submit-tx-btn" class="btn btn-primary w-full">
+                                <i class="fa-solid fa-paper-plane fa-fw mr-1"></i> 提交交易
+                            </button>
+                            <div id="tx-feedback" class="text-sm mt-2 h-5"></div>
+                        </form>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold mb-3 text-gray-600">交易池 <span id="tx-pool-count" class="text-sm text-gray-500"></span></h3>
+                        <ul id="transaction-pool-list" class="list-none p-3 bg-gray-50 border rounded max-h-96 overflow-y-auto min-h-[150px] shadow-inner">
+                            <div class="spinner"></div>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            <section id="system-detection" class="hidden bg-white rounded shadow-md p-6 space-y-6">
+                <h2 class="text-xl font-semibold mb-4 border-b pb-3 text-gray-700">系统控制与性能</h2>
+                <div class="mb-6">
+                    <h3 class="text-lg font-semibold mb-3 text-gray-600">节点控制面板 (模拟操作)</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                        <select id="control-target-node" class="p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm col-span-full md:col-span-1 mb-2 md:mb-0">
+                            <option value="">选择目标节点</option>
+                            </select>
+                        <button id="start-node-btn" data-action="start_node" class="btn btn-success"><i class="fa-solid fa-play fa-fw mr-1"></i> 启动节点</button>
+                        <button id="stop-node-btn" data-action="stop_node" class="btn btn-danger"><i class="fa-solid fa-stop fa-fw mr-1"></i> 停止节点</button>
+                        <button id="crash-node-btn" data-action="crash_node" class="btn btn-warning"><i class="fa-solid fa-bolt fa-fw mr-1"></i> 模拟崩溃</button>
+                    </div>
+                    <div class="mt-4">
+                         <label for="control-network-delay-ms" class="text-sm font-medium text-gray-600 block mb-1">模拟网络延迟 (ms) 到目标节点:</label>
+                         <div class="flex gap-2">
+                            <input type="number" id="control-network-delay-ms" value="100" class="p-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm w-1/3">
+                            <button id="delay-network-btn" data-action="delay_network" class="btn btn-purple flex-1"><i class="fa-solid fa-clock fa-fw mr-1"></i> 应用延迟</button>
+                         </div>
+                    </div>
+                    <div id="control-feedback" class="text-sm mt-4 p-2 rounded bg-gray-100 h-10 flex items-center text-gray-600"></div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-3 text-gray-600">实时性能统计</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg shadow">
+                            <h4 class="text-sm font-bold text-blue-700 mb-1">平均 TPS</h4>
+                            <p id="tps-statistic" class="text-3xl font-semibold text-blue-600">--</p>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg shadow">
+                            <h4 class="text-sm font-bold text-green-700 mb-1">区块生成间隔</h4>
+                            <p id="block-generation-interval" class="text-3xl font-semibold text-green-600">-- s</p>
+                        </div>
+                        <div class="bg-yellow-50 p-4 rounded-lg shadow">
+                            <h4 class="text-sm font-bold text-yellow-700 mb-1">共识平均延迟</h4>
+                            <p id="node-message-latency" class="text-3xl font-semibold text-yellow-600">-- ms</p>
+                        </div>
+                         <div class="bg-indigo-50 p-4 rounded-lg shadow">
+                            <h4 class="text-sm font-bold text-indigo-700 mb-1">Leader选举频率</h4>
+                            <p id="leader-election-rate" class="text-3xl font-semibold text-indigo-600">-- / hr</p>
+                        </div>
+                    </div>
+                    <div id="perf-feedback" class="text-sm mt-3 text-gray-600 h-5"></div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="w-full bg-gray-700 text-white text-center p-3 text-xs mt-auto">
+            Raft 区块链监控系统 &copy; <span id="current-year">2025</span>. 林浩的毕业设计.
+        </footer>
+    </div>
+    <script>
+        // --- Configuration ---
+        const MOCK_API_BASE_URL = 'http://127.0.0.1:8080/api/v1'; // 仅用于模拟，实际调用时会替换
+        const POLLING_INTERVAL_STATUS = 5000;
+        const POLLING_INTERVAL_LOGS = 8000;
+        const POLLING_INTERVAL_BLOCKS = 10000;
+        const POLLING_INTERVAL_POOL = 6000;
+        const POLLING_INTERVAL_PERF = 7000;
+
+        // --- Global State ---
+        let activeSection = 'dashboard';
+        let currentBlockListPage = 1;
+        const BLOCKS_PER_PAGE = 10;
+        let mockSystemLogs = []; // Store all mock logs for filtering
+        let mockNodesData = []; // Store mock nodes for dropdowns
+
+        // --- DOM Elements ---
+        const sidebar = document.getElementById('sidebar');
+        const mobileOpenSidebarBtn = document.getElementById('mobile-open-sidebar-btn');
+        const mobileCloseSidebarBtn = document.getElementById('mobile-close-sidebar-btn');
+        const mobileOverlay = document.getElementById('mobile-overlay');
+        const mainContentArea = document.getElementById('main-content-area');
+        const currentTimeDisplay = document.getElementById('current-time');
+        const currentYearDisplay = document.getElementById('current-year');
+        const currentSectionTitle = document.getElementById('current-section-title');
+        // Log filters
+        const logNodeFilter = document.getElementById('log-node-filter');
+        const logLevelFilter = document.getElementById('log-level-filter');
+        const applyLogFilterBtn = document.getElementById('apply-log-filter-btn');
+        const clearLogFilterBtn = document.getElementById('clear-log-filter-btn');
+        // Block list & details
+        const blockListView = document.getElementById('block-list-view');
+        const blockDetailsView = document.getElementById('block-details-view');
+        const backToBlockListBtn = document.getElementById('back-to-block-list-btn');
+        const refreshBlocksBtn = document.getElementById('refresh-blocks-btn');
+        // Transaction details
+        const txDetailsView = document.getElementById('transaction-details-view');
+        const backFromTxDetailBtn = document.getElementById('back-from-tx-detail-btn');
+        // Node control
+        const controlTargetNodeSelect = document.getElementById('control-target-node');
+
+
+        // --- Utility Functions ---
+        function showLoading(containerElementOrSelector) {
+            const element = typeof containerElementOrSelector === 'string' ? document.querySelector(containerElementOrSelector) : containerElementOrSelector;
+            if (element) element.innerHTML = '<div class="spinner"></div>';
+        }
+        function showEmpty(containerElementOrSelector, message = "暂无数据") {
+            const element = typeof containerElementOrSelector === 'string' ? document.querySelector(containerElementOrSelector) : containerElementOrSelector;
+            if (element) element.innerHTML = `<p class="placeholder-text">${message}</p>`;
+        }
+        function showError(containerElementOrSelector, error, context = "") {
+            console.error(`Error ${context}:`, error);
+            const element = typeof containerElementOrSelector === 'string' ? document.querySelector(containerElementOrSelector) : containerElementOrSelector;
+            if (element) element.innerHTML = `<p class="placeholder-text text-red-600">加载失败${context ? ` (${context})` : ''}: ${error.message || '未知错误'}</p>`;
+        }
+        function formatTimestamp(isoStringOrTimestamp) {
+            if (!isoStringOrTimestamp) return 'N/A';
+            try {
+                const date = new Date(isoStringOrTimestamp);
+                // 'sv-SE' gives YYYY-MM-DD HH:MM:SS format
+                return date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).replace(/\//g, '-');
+            } catch (e) {
+                return String(isoStringOrTimestamp);
+            }
+        }
+        function abbreviateHash(hash, start = 8, end = 6) {
+            if (!hash || typeof hash !== 'string' || hash.length < (start + end + 3)) return hash || 'N/A';
+            return `${hash.substring(0, start)}...${hash.substring(hash.length - end)}`;
+        }
+        function getRandomInt(min, max) {
+            min = Math.ceil(min);
+            max = Math.floor(max);
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+        function generateMockHash(length = 32) {
+            return '0x' + Array.from({ length }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+        }
+
+        // --- Mock Data Generators ---
+        function generateMockNode(id) {
+            const roles = ['领导者', '跟随者', '候选者'];
+            const statuses = ['活跃', '离线', '同步中'];
+            const now = Date.now();
+            return {
+                id: id,
+                name: `Node-${id}`,
+                role: roles[getRandomInt(0, 2)],
+                term: getRandomInt(5, 15),
+                commitIndex: getRandomInt(8000, 12000),
+                lastApplied: getRandomInt(7900, 11900),
+                lastHeartbeat: formatTimestamp(new Date(now - getRandomInt(100, 5000))),
+                status: Math.random() < 0.1 ? statuses[1] : (Math.random() < 0.15 ? statuses[2] : statuses[0]), // 10% offline, 15% syncing
+                address: `192.168.1.${getRandomInt(10,50)}:900${id-1}`
+            };
+        }
+
+        function generateMockSystemLog(nodeId = null) {
+            const levels = ['INFO', 'WARNING', 'ERROR', 'SUCCESS'];
+            const messages = [
+                '成功处理请求 /api/v1/blocks', '用户 user_admin 登录成功', '节点同步完成', '检测到新的区块提议',
+                '配置已更新', '网络连接超时', '磁盘空间不足警告', 'Leader选举开始', '收到投票请求',
+                '无效的交易签名', '区块验证失败', '成功提交交易到交易池', 'Raft日志条目已提交'
+            ];
+            const services = ['API Server', 'AuthService', 'RaftConsensus', 'BlockService', 'NetworkLayer'];
+            const randomNodeId = nodeId || (mockNodesData.length > 0 ? mockNodesData[getRandomInt(0, mockNodesData.length - 1)].id : 'System');
+
+            return {
+                id: generateMockHash(10),
+                timestamp: new Date(Date.now() - getRandomInt(0, 60000 * 60)).toISOString(), // Within the last hour
+                node_id: randomNodeId,
+                service_name: services[getRandomInt(0, services.length - 1)],
+                level: levels[getRandomInt(0, levels.length - 1)],
+                message: messages[getRandomInt(0, messages.length - 1)],
+                context: Math.random() > 0.7 ? { "traceId": generateMockHash(8), "durationMs": getRandomInt(10,500)} : null
+            };
+        }
+        function initializeMockSystemLogs(count = 100) {
+            mockSystemLogs = Array.from({ length: count }, () => generateMockSystemLog());
+        }
+
+        let mockBlockHeight = 12345;
+        let mockPrevBlockHash = generateMockHash(64);
+
+        function generateMockTransaction(txIndexInBlock, blockHeight) {
+            const txTypes = ['转账', '合约调用', '数据存储'];
+            return {
+                id: generateMockHash(64), // tx_hash
+                timestamp: new Date(Date.now() - getRandomInt(10000, 600000)).toISOString(),
+                blockHeight: blockHeight,
+                tx_index_in_block: txIndexInBlock,
+                type: txTypes[getRandomInt(0, txTypes.length - 1)],
+                payload: JSON.stringify({
+                    data: `Mock payload data for tx ${txIndexInBlock} in block ${blockHeight}`,
+                    value: (Math.random() * 1000).toFixed(4),
+                    details: { from: `addr_${generateMockHash(10)}`, to: `addr_${generateMockHash(10)}` }
+                }),
+                senderPublicKey: `pk_${generateMockHash(32)}`,
+                status: 'confirmed'
+            };
+        }
+        function generateMockBlock() {
+            mockBlockHeight++;
+            const currentBlockHash = generateMockHash(64);
+            const txCount = getRandomInt(0, 15);
+            const block = {
+                id: mockBlockHeight, // Internal ID
+                block_height: mockBlockHeight,
+                timestamp: new Date(Date.now() - getRandomInt(1000, 50000)).toISOString(),
+                block_hash: currentBlockHash,
+                prev_block_hash: mockPrevBlockHash,
+                transaction_count: txCount,
+                term: getRandomInt(10, 20),
+                proposer_node_id: mockNodesData.length > 0 ? mockNodesData[getRandomInt(0, mockNodesData.length - 1)].id : 1,
+                merkle_root: generateMockHash(64),
+                raw_block_size: getRandomInt(1024, 8192), // bytes
+                transactions: Array.from({length: txCount}, (_, i) => generateMockTransaction(i, mockBlockHeight))
+            };
+            mockPrevBlockHash = currentBlockHash;
+            return block;
+        }
+
+        function generateMockTxPoolEntry() {
+            const types = ['transfer', 'contract_call', 'data_write'];
+            return {
+                id: generateMockHash(10), // short id for display
+                tx_hash: `0xPOOL_${generateMockHash(28)}`,
+                type: types[getRandomInt(0, types.length-1)],
+                received_at: new Date(Date.now() - getRandomInt(1000, 30000)).toISOString(),
+                payload_summary: `To: Addr${getRandomInt(100,200)}, Amount: ${(Math.random()*10).toFixed(2)}`,
+                senderPublicKey: `pk_pool_${generateMockHash(10)}`
+            };
+        }
+
+        // --- API Fetch Functions (Simulated) ---
+        async function mockFetch(endpoint, options = {}, delay = 500) {
+            console.log(`Mock API Call: ${endpoint}`, options);
+            await new Promise(resolve => setTimeout(resolve, delay)); // Simulate network delay
+
+            // Simulate authentication check for non-public endpoints
+            if (!endpoint.includes('/login') && !endpoint.includes('/register')) {
+                 const token = localStorage.getItem('authToken');
+                 if (!token && endpoint !== MOCK_API_BASE_URL + '/init-check') { // Allow init check without token for now
+                    // If this were a real app, we'd redirect or show an error
+                    console.warn("Mock API: No auth token found for protected route.");
+                    // For simulation, let some calls pass to show UI, but real API would block
+                 }
+            }
+
+            if (endpoint.startsWith(MOCK_API_BASE_URL + '/status/nodes')) {
+                mockNodesData = Array.from({ length: getRandomInt(3, 7) }, (_, i) => generateMockNode(i + 1));
+                return { ok: true, json: async () => mockNodesData };
+            }
+            if (endpoint.startsWith(MOCK_API_BASE_URL + '/status/logs')) {
+                const limit = options.params?.limit || 20;
+                const filteredLogs = mockSystemLogs
+                    .filter(log => {
+                        if (options.params?.level && log.level !== options.params.level) return false;
+                        if (options.params?.node_id && String(log.node_id) !== String(options.params.node_id)) return false;
+                        // Add time range filtering if needed
+                        return true;
+                    })
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .slice(0, limit);
+                return { ok: true, json: async () => filteredLogs };
+            }
+            if (endpoint.startsWith(MOCK_API_BASE_URL + '/blocks')) {
+                if (endpoint.includes('/blocks/latest')) { // Hypothetical endpoint for just one latest block
+                    return { ok: true, json: async () => generateMockBlock() };
+                }
+                // For /blocks (list)
+                const page = options.params?.page || 1;
+                const perPage = options.params?.per_page || BLOCKS_PER_PAGE;
+                const totalBlocks = 50; // Simulate total available blocks for pagination
+                const startIndex = (page - 1) * perPage;
+
+                // Simulate a fixed set of blocks for consistent pagination viewing
+                const allMockBlocks = Array.from({length: totalBlocks}, (_, i) => {
+                     // To make heights consistent for pagination, we generate them backwards from a fixed future height
+                    const baseHeight = 12345 + totalBlocks -1;
+                    const currentBlockHeight = baseHeight - i;
+                    const txCount = getRandomInt(0,5);
+                    return {
+                        id: currentBlockHeight,
+                        block_height: currentBlockHeight,
+                        timestamp: new Date(Date.now() - (totalBlocks - i) * 30000).toISOString(),
+                        block_hash: `0xBLOCK${currentBlockHeight}_${generateMockHash(10)}`,
+                        prev_block_hash: `0xBLOCK${currentBlockHeight-1}_${generateMockHash(10)}`,
+                        transaction_count: txCount,
+                        term: getRandomInt(10,20),
+                        proposer_node_id: mockNodesData.length > 0 ? mockNodesData[getRandomInt(0, mockNodesData.length - 1)].id : 1,
+                        transactions: Array.from({length: txCount}, (_, j) => generateMockTransaction(j, currentBlockHeight)) // Include full tx for detail view
+                    };
+                });
+
+                const paginatedBlocks = allMockBlocks.slice(startIndex, startIndex + perPage);
+                return {
+                    ok: true,
+                    json: async () => ({
+                        blocks: paginatedBlocks,
+                        pagination: {
+                            currentPage: page,
+                            totalPages: Math.ceil(totalBlocks / perPage),
+                            totalItems: totalBlocks,
+                            perPage: perPage
+                        }
+                    })
+                };
+            }
+             // For /blocks/{identifier} (detail)
+            if (endpoint.match(/\/api\/v1\/blocks\/(\w+)/)) {
+                const identifier = endpoint.match(/\/api\/v1\/blocks\/(\w+)/)[1];
+                // In a real app, you'd fetch by hash or height. Here, we find by height from our mock list.
+                const blockHeightToFind = parseInt(identifier); // Assuming identifier is height for mock
+                const baseTotalBlocks = 50; // Must match the totalBlocks in list view for consistency
+                const baseHeight = 12345 + baseTotalBlocks -1;
+
+                if (blockHeightToFind > baseHeight || blockHeightToFind < 12345) {
+                     return { ok: false, status: 404, json: async () => ({ message: "Block not found" }) };
+                }
+                const txCount = getRandomInt(1,8);
+                const foundBlock = {
+                    id: blockHeightToFind,
+                    block_height: blockHeightToFind,
+                    timestamp: new Date(Date.now() - (baseHeight - blockHeightToFind) * 30000).toISOString(),
+                    block_hash: `0xBLOCK${blockHeightToFind}_${generateMockHash(10)}DETAIL`,
+                    prev_block_hash: `0xBLOCK${blockHeightToFind-1}_${generateMockHash(10)}DETAIL`,
+                    transaction_count: txCount,
+                    term: getRandomInt(10,20),
+                    proposer_node_id: mockNodesData.length > 0 ? mockNodesData[getRandomInt(0, mockNodesData.length - 1)].id : 1,
+                    merkle_root: generateMockHash(64),
+                    raw_block_size: getRandomInt(2048, 16384),
+                    transactions: Array.from({length: txCount}, (_, j) => generateMockTransaction(j, blockHeightToFind))
+                };
+                return { ok: true, json: async () => foundBlock };
+            }
+            if (endpoint.startsWith(MOCK_API_BASE_URL + '/transactions/pool')) {
+                const poolSize = getRandomInt(0, 8);
+                return { ok: true, json: async () => Array.from({ length: poolSize }, generateMockTxPoolEntry) };
+            }
+            if (endpoint.startsWith(MOCK_API_BASE_URL + '/transactions')) { // POST for new transaction
+                if (options.method === 'POST') {
+                    const body = JSON.parse(options.body);
+                    console.log("Mock submitting transaction:", body);
+                    if (Math.random() > 0.1) { // 90% success
+                        return {
+                            ok: true,
+                            json: async () => ({
+                                message: "交易已成功提交到交易池",
+                                status: "pending",
+                                transaction_id: `0xSUBMITTED_${generateMockHash(20)}`
+                            })
+                        };
+                    } else {
+                        return {
+                            ok: false, status: 400,
+                            json: async () => ({ message: "模拟交易提交失败: 无效的参数" })
+                        };
+                    }
+                }
+                 // GET for transaction details /api/v1/transactions/{tx_hash}
+                if (options.method === 'GET' || options.method === undefined) { // Default to GET
+                    const txHash = endpoint.split('/').pop();
+                    if (txHash && txHash !== 'pool') {
+                        const mockTx = generateMockTransaction(0, getRandomInt(12000,12345));
+                        mockTx.id = txHash; // Ensure the ID matches
+                        mockTx.blockHash = `0xBLOCK${mockTx.blockHeight}_${generateMockHash(10)}`
+                        return { ok: true, json: async () => mockTx };
+                    }
+                }
+            }
+            if (endpoint.startsWith(MOCK_API_BASE_URL + '/performance')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        average_tps: (Math.random() * 30 + 5).toFixed(1),
+                        average_block_interval_seconds: (Math.random() * 3 + 2).toFixed(1), // 2-5s
+                        average_consensus_latency_ms: (Math.random() * 80 + 10).toFixed(0), // 10-90ms
+                        leader_election_rate_per_hour: (Math.random() * 2).toFixed(1)
+                    })
+                };
+            }
+            if (endpoint.startsWith(MOCK_API_BASE_URL + '/control/node/')) { // e.g., /api/v1/control/node/1/stop
+                const parts = endpoint.split('/');
+                const nodeId = parts[parts.length - 2];
+                const action = parts[parts.length - 1];
+                const targetNodeIdFromSelect = controlTargetNodeSelect.value;
+
+                if (!targetNodeIdFromSelect && (action === 'stop' || action === 'start' || action === 'crash') ) {
+                     return { ok: false, status: 400, json: async () => ({ message: `请先选择目标节点再执行 '${action}' 操作` }) };
+                }
+                const finalNodeId = (action === 'stop' || action === 'start' || action === 'crash') ? targetNodeIdFromSelect : nodeId; // nodeId might be from a different source for delay
+
+                console.log(`Mock control action: ${action} on node ${finalNodeId}`, options.body);
+                 if (action === 'delay_network') {
+                     const delayMs = JSON.parse(options.body).delay_ms;
+                     if (!targetNodeIdFromSelect) {
+                        return { ok: false, status: 400, json: async () => ({ message: "请选择目标节点以应用网络延迟" }) };
+                     }
+                     return { ok: true, json: async () => ({ message: `成功模拟对节点 ${targetNodeIdFromSelect} 应用 ${delayMs}ms 网络延迟` }) };
+                 }
+
+                // Update mock node data based on action
+                const nodeToUpdate = mockNodesData.find(n => String(n.id) === String(finalNodeId));
+                let feedbackMessage = `操作 '${action}' 成功执行于节点 ${finalNodeId}`;
+
+                if (nodeToUpdate) {
+                    if (action === 'stop' || action === 'crash') {
+                        nodeToUpdate.status = '离线';
+                        nodeToUpdate.role = '未知';
+                        feedbackMessage = `节点 ${finalNodeId} 已成功模拟 ${action === 'stop' ? '停止' : '崩溃'}.`;
+                    } else if (action === 'start') {
+                        nodeToUpdate.status = '活跃';
+                        nodeToUpdate.role = '跟随者'; // Assume it starts as follower
+                        feedbackMessage = `节点 ${finalNodeId} 已成功模拟启动.`;
+                    }
+                } else if (action !== 'delay_network') { // delay_network doesn't strictly need the node in mockNodesData
+                    return { ok: false, status: 404, json: async () => ({ message: `未找到目标节点 ${finalNodeId} 进行操作` }) };
+                }
+
+                // Simulate success/failure
+                if (Math.random() > 0.1) { // 90% success
+                    // Re-render node status if an action affected it
+                    if (activeSection === 'dashboard' && (action === 'stop' || action === 'start' || action === 'crash')) {
+                        setTimeout(renderNodeStatus, 100); // Give a slight delay for visual effect
+                    }
+                    return { ok: true, json: async () => ({ message: feedbackMessage }) };
+                } else {
+                    return { ok: false, status: 500, json: async () => ({ message: `模拟执行 ${action} 失败` }) };
+                }
+            }
+            // Fallback for unknown endpoints during mock
+            return { ok: false, status: 404, json: async () => ({ message: `Mock endpoint ${endpoint} not found` }) };
+        }
+
+
+        // --- Rendering Functions ---
+        function renderNodeStatus() {
+            const container = document.getElementById('node-status-container');
+            if (!container) return;
+            // No need to showLoading if data (mockNodesData) is already available and will be rendered sync
+            if (mockNodesData.length === 0) { // Only show spinner if there's truly no data yet (e.g. initial call)
+                showLoading(container);
+                return;
+            }
+            container.innerHTML = '';
+
+            if (mockNodesData.length === 0) {
+                showEmpty(container, "无节点信息，请稍后...");
+                return;
+            }
+
+            mockNodesData.forEach(node => {
+                const nodeElement = document.createElement('div');
+                nodeElement.classList.add('card', 'hover:shadow-lg', 'transition-shadow', 'duration-200');
+                if (node.status === '离线') {
+                    nodeElement.classList.add('opacity-60', 'bg-gray-50');
+                }
+
+                let roleColor, roleTextColor, roleIcon;
+                switch (node.role) {
+                    case '领导者': roleColor = 'bg-green-500'; roleTextColor = 'text-white'; roleIcon = 'fa-crown'; break;
+                    case '跟随者': roleColor = 'bg-blue-500'; roleTextColor = 'text-white'; roleIcon = 'fa-user-friends'; break;
+                    case '候选者': roleColor = 'bg-yellow-400'; roleTextColor = 'text-gray-800'; roleIcon = 'fa-user-astronaut'; break;
+                    default: roleColor = 'bg-gray-400'; roleTextColor = 'text-white'; roleIcon = 'fa-question-circle';
+                }
+
+                let statusColor, statusTextColor, statusIcon, statusPulse = '';
+                switch (node.status) {
+                    case '活跃': statusColor = 'bg-green-100'; statusTextColor = 'text-green-700'; statusIcon = 'fa-check-circle'; statusPulse = 'animate-pulse'; break;
+                    case '离线': statusColor = 'bg-red-100'; statusTextColor = 'text-red-700'; statusIcon = 'fa-times-circle'; break;
+                    case '同步中': statusColor = 'bg-blue-100'; statusTextColor = 'text-blue-700'; statusIcon = 'fa-sync fa-spin'; break; // Spinning icon for syncing
+                    default: statusColor = 'bg-gray-100'; statusTextColor = 'text-gray-700'; statusIcon = 'fa-question-circle';
+                }
+
+                nodeElement.innerHTML = `
+                    <span class="absolute top-3 right-3 px-2.5 py-1 text-xs font-bold rounded-full shadow-sm ${roleColor} ${roleTextColor} flex items-center">
+                        <i class="fa-solid ${roleIcon} mr-1.5"></i>${node.role}
+                    </span>
+                    <h3 class="text-lg font-semibold mb-2 pr-20 text-gray-700">${node.name || `Node ${node.id}`}</h3>
+                    <p class="text-xs text-gray-500 mb-2"><i class="fa-solid fa-network-wired fa-fw w-4 text-gray-400 mr-1"></i>地址: ${node.address || 'N/A'}</p>
+                    <div class="space-y-1 text-sm">
+                        <p class="text-gray-600"><i class="fa-solid fa-layer-group fa-fw w-4 text-gray-400 mr-1"></i>任期: <span class="font-medium text-gray-700">${node.term ?? 'N/A'}</span></p>
+                        <p class="text-gray-600"><i class="fa-solid fa-list-ol fa-fw w-4 text-gray-400 mr-1"></i>Commit Idx: <span class="font-medium text-gray-700">${node.commitIndex ?? 'N/A'}</span></p>
+                        <p class="text-gray-600"><i class="fa-solid fa-clipboard-check fa-fw w-4 text-gray-400 mr-1"></i>Applied Idx: <span class="font-medium text-gray-700">${node.lastApplied ?? 'N/A'}</span></p>
+                        <p class="text-gray-600"><i class="fa-solid fa-heart-pulse fa-fw w-4 text-gray-400 mr-1"></i>最后心跳: <span class="font-medium text-gray-700">${node.lastHeartbeat ?? 'N/A'}</span></p>
+                    </div>
+                    <p class="mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColor} ${statusTextColor} ${statusPulse}">
+                        <i class="fa-solid ${statusIcon} mr-1.5"></i>
+                        ${node.status ?? '未知'}
+                    </p>
+                `;
+                container.appendChild(nodeElement);
+            });
+        }
+
+        function renderLogData(logsToRender) {
+            const logTimeline = document.getElementById('system-log-timeline');
+            if (!logTimeline) return;
+
+            const shouldScroll = logTimeline.scrollTop + logTimeline.clientHeight >= logTimeline.scrollHeight - 30;
+            logTimeline.innerHTML = '';
+
+            if (!logsToRender || logsToRender.length === 0) {
+                showEmpty(logTimeline, "没有符合条件的日志");
+                return;
+            }
+
+            // Logs are typically sorted newest first by API, if not, sort here.
+            // logsToRender.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            logsToRender.forEach(log => {
+                const logEntry = document.createElement('div');
+                logEntry.classList.add('log-entry');
+
+                let logLevelClass;
+                switch (log.level?.toUpperCase()) {
+                    case 'INFO': logLevelClass = 'log-level-info'; break;
+                    case 'SUCCESS': logLevelClass = 'log-level-success'; break;
+                    case 'WARNING': logLevelClass = 'log-level-warning'; break;
+                    case 'ERROR': logLevelClass = 'log-level-error'; break;
+                    default: logLevelClass = 'bg-gray-200 text-gray-700';
+                }
+                const nodeIdDisplay = log.node_id && log.node_id !== 'System' ? `Node-${log.node_id} | ` : '';
+                const serviceNameDisplay = log.service_name ? `${log.service_name} | ` : '';
+
+                logEntry.innerHTML = `
+                    <div class="flex justify-between items-start mb-1">
+                        <p class="log-message">${log.message || '无消息内容'}</p>
+                        <span class="log-level ${logLevelClass} whitespace-nowrap">${log.level || 'LOG'}</span>
+                    </div>
+                    <div class="log-timestamp text-gray-500">
+                        ${formatTimestamp(log.timestamp)} <span class="mx-1 text-gray-300">|</span> ${nodeIdDisplay}${serviceNameDisplay}<span>ID: ${abbreviateHash(log.id, 6,4)}</span>
+                    </div>
+                    ${log.context ? `<pre class="mt-1 text-xs bg-gray-100 p-1.5 rounded overflow-x-auto">${JSON.stringify(log.context, null, 2)}</pre>` : ''}
+                `;
+                logTimeline.appendChild(logEntry);
+            });
+
+            if (shouldScroll) {
+                logTimeline.scrollTop = logTimeline.scrollHeight;
+            }
+        }
+
+        function renderBlockData(data) { // data is { blocks: [], pagination: {} }
+            const blockTableBody = document.getElementById('block-list-table');
+            const paginationContainer = document.getElementById('block-list-pagination');
+            if (!blockTableBody || !paginationContainer) return;
+
+            blockTableBody.innerHTML = '';
+            paginationContainer.innerHTML = '';
+
+            if (!data || !data.blocks || data.blocks.length === 0) {
+                blockTableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-500">暂无区块信息</td></tr>`;
+                return;
+            }
+
+            data.blocks.forEach(block => {
+                const row = blockTableBody.insertRow();
+                row.classList.add('hover:bg-gray-50', 'transition-colors', 'duration-150');
+                row.innerHTML = `
+                    <td class="table-cell">${block.block_height ?? 'N/A'}</td>
+                    <td class="table-cell text-xs">${formatTimestamp(block.timestamp)}</td>
+                    <td class="table-cell" title="${block.block_hash || ''}"><a href="#" class="text-blue-600 hover:underline" onclick="event.preventDefault(); showBlockDetailsView('${block.block_height}')">${abbreviateHash(block.block_hash)}</a></td>
+                    <td class="table-cell text-center">${block.transaction_count ?? 'N/A'}</td>
+                    <td class="table-cell text-center">${block.proposer_node_id ?? 'N/A'}</td>
+                    <td class="table-cell text-center">
+                        <button class="text-blue-600 hover:text-blue-800 text-xs p-1" onclick="showBlockDetailsView('${block.block_height}')" title="查看详情">
+                            <i class="fa-solid fa-eye fa-fw"></i> 详情
+                        </button>
+                    </td>
+                `;
+            });
+
+            renderPagination(paginationContainer, data.pagination, fetchAndRenderBlockData);
+        }
+
+        function renderPagination(container, paginationData, fetchFunction) {
+            if (!paginationData || paginationData.totalPages <= 1) {
+                container.innerHTML = ''; // No pagination needed for 1 page or less
+                return;
+            }
+            let paginationHTML = '<nav class="flex items-center justify-center space-x-1">';
+
+            // Previous Button
+            paginationHTML += `
+                <button onclick="${paginationData.currentPage > 1 ? `${fetchFunction.name}(${paginationData.currentPage - 1})` : ''}"
+                        class="p-2 rounded ${paginationData.currentPage > 1 ? 'hover:bg-gray-200' : 'text-gray-400 cursor-not-allowed'}"
+                        ${paginationData.currentPage <= 1 ? 'disabled' : ''}>
+                    <i class="fa-solid fa-chevron-left fa-xs"></i>
+                </button>`;
+
+            // Page Numbers (simplified version)
+            const maxPagesToShow = 5;
+            let startPage = Math.max(1, paginationData.currentPage - Math.floor(maxPagesToShow / 2));
+            let endPage = Math.min(paginationData.totalPages, startPage + maxPagesToShow - 1);
+            if (endPage - startPage + 1 < maxPagesToShow) { // Adjust startPage if endPage is at max
+                 startPage = Math.max(1, endPage - maxPagesToShow + 1);
+            }
+
+
+            if (startPage > 1) {
+                paginationHTML += `<button onclick="${fetchFunction.name}(1)" class="p-2 rounded hover:bg-gray-200">1</button>`;
+                if (startPage > 2) paginationHTML += `<span class="p-2">...</span>`;
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                paginationHTML += `
+                    <button onclick="${fetchFunction.name}(${i})"
+                            class="p-2 rounded min-w-[32px] ${i === paginationData.currentPage ? 'bg-blue-600 text-white font-semibold' : 'hover:bg-gray-200'}">
+                        ${i}
+                    </button>`;
+            }
+
+            if (endPage < paginationData.totalPages) {
+                if (endPage < paginationData.totalPages - 1) paginationHTML += `<span class="p-2">...</span>`;
+                paginationHTML += `<button onclick="${fetchFunction.name}(${paginationData.totalPages})" class="p-2 rounded hover:bg-gray-200">${paginationData.totalPages}</button>`;
+            }
+
+            // Next Button
+            paginationHTML += `
+                <button onclick="${paginationData.currentPage < paginationData.totalPages ? `${fetchFunction.name}(${paginationData.currentPage + 1})` : ''}"
+                        class="p-2 rounded ${paginationData.currentPage < paginationData.totalPages ? 'hover:bg-gray-200' : 'text-gray-400 cursor-not-allowed'}"
+                        ${paginationData.currentPage >= paginationData.totalPages ? 'disabled' : ''}>
+                    <i class="fa-solid fa-chevron-right fa-xs"></i>
+                </button>`;
+            paginationHTML += '</nav>';
+            container.innerHTML = paginationHTML;
+        }
+
+
+        function renderBlockDetails(block) {
+            document.getElementById('detail-block-height').textContent = block.block_height;
+            document.getElementById('detail-block-height-val').textContent = block.block_height;
+            document.getElementById('detail-block-timestamp').textContent = formatTimestamp(block.timestamp);
+            document.getElementById('detail-block-hash').textContent = block.block_hash;
+            document.getElementById('detail-block-prevhash').textContent = block.prev_block_hash;
+            document.getElementById('detail-block-txcount').textContent = block.transaction_count;
+            document.getElementById('detail-block-term').textContent = block.term || 'N/A';
+            document.getElementById('detail-block-proposer').textContent = block.proposer_node_id || 'N/A';
+            document.getElementById('detail-block-size').textContent = block.raw_block_size ? `${block.raw_block_size} bytes` : 'N/A';
+
+            const txListContainer = document.getElementById('detail-block-transactions-list');
+            txListContainer.innerHTML = '';
+            if (block.transactions && block.transactions.length > 0) {
+                const ul = document.createElement('ul');
+                ul.className = 'space-y-2';
+                block.transactions.forEach(tx => {
+                    const li = document.createElement('li');
+                    li.className = 'p-2 border rounded bg-white hover:bg-gray-50 text-xs';
+                    li.innerHTML = `
+                        <div class="flex justify-between items-center">
+                            <span class="font-mono text-blue-600 hover:underline cursor-pointer" title="点击查看交易详情: ${tx.id}" onclick="showTransactionDetailsView('${tx.id}', '${block.block_height}')">${abbreviateHash(tx.id, 10, 8)}</span>
+                            <span class="text-gray-500">${tx.type}</span>
+                        </div>
+                        <div class="text-gray-400 text-xxs mt-0.5">载荷摘要: ${abbreviateHash(tx.payload, 30,0)}</div>
+                    `;
+                    ul.appendChild(li);
+                });
+                txListContainer.appendChild(ul);
+            } else {
+                showEmpty(txListContainer, "此区块不包含交易");
+            }
+        }
+
+        function renderTransactionDetails(tx) {
+            document.getElementById('detail-tx-hash').textContent = tx.id;
+            document.getElementById('detail-tx-timestamp').textContent = formatTimestamp(tx.timestamp);
+            document.getElementById('detail-tx-blockheight').textContent = tx.blockHeight || 'N/A (交易池)';
+            document.getElementById('detail-tx-type').textContent = tx.type || 'N/A';
+            document.getElementById('detail-tx-senderpk').textContent = tx.senderPublicKey || 'N/A';
+            document.getElementById('detail-tx-status').textContent = tx.status || 'N/A';
+            try {
+                const payloadFormatted = JSON.stringify(JSON.parse(tx.payload || '{}'), null, 2);
+                document.getElementById('detail-tx-payload').textContent = payloadFormatted;
+            } catch (e) {
+                document.getElementById('detail-tx-payload').textContent = tx.payload || 'N/A';
+            }
+        }
+
+
+        function renderTransactionPool(poolData) {
+            const poolList = document.getElementById('transaction-pool-list');
+            const poolCountSpan = document.getElementById('tx-pool-count');
+            if (!poolList || !poolCountSpan) return;
+
+            poolList.innerHTML = '';
+            poolCountSpan.textContent = `(${poolData ? poolData.length : 0})`;
+
+            if (!poolData || poolData.length === 0) {
+                showEmpty(poolList, "交易池为空");
+                return;
+            }
+
+            poolData.forEach(tx => {
+                const listItem = document.createElement('li');
+                listItem.classList.add('text-xs', 'mb-2', 'pb-2', 'border-b', 'border-gray-200', 'last:border-b-0', 'font-mono', 'p-2', 'hover:bg-gray-100', 'rounded');
+                listItem.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="block text-blue-600 font-semibold truncate cursor-pointer hover:underline" title="点击查看交易详情: ${tx.tx_hash}" onclick="showTransactionDetailsView('${tx.tx_hash}', null)">${abbreviateHash(tx.tx_hash, 10, 8)}</span>
+                        <span class="text-gray-500 text-xxs">${tx.type}</span>
+                    </div>
+                    <div class="text-gray-600 mt-0.5">${tx.payload_summary || 'N/A'}</div>
+                    <div class="text-gray-400 text-xxs mt-0.5">接收时间: ${formatTimestamp(tx.received_at)}</div>
+                `;
+                poolList.appendChild(listItem);
+            });
+        }
+
+        function renderPerformanceData(data) {
+            document.getElementById('tps-statistic').textContent = data.average_tps || '--';
+            document.getElementById('block-generation-interval').textContent = data.average_block_interval_seconds ? `${data.average_block_interval_seconds} s` : '-- s';
+            document.getElementById('node-message-latency').textContent = data.average_consensus_latency_ms ? `${data.average_consensus_latency_ms} ms` : '-- ms';
+            document.getElementById('leader-election-rate').textContent = data.leader_election_rate_per_hour ? `${data.leader_election_rate_per_hour} / hr` : '-- / hr';
+        }
+
+        function populateNodeFilterDropdown(nodes) {
+            if (!logNodeFilter || !controlTargetNodeSelect) return;
+            // Preserve "All Nodes" / "Select Target Node" option
+            logNodeFilter.innerHTML = '<option value="">所有节点</option>';
+            controlTargetNodeSelect.innerHTML = '<option value="">选择目标节点</option>';
+
+            nodes.forEach(node => {
+                const optionLog = document.createElement('option');
+                optionLog.value = node.id;
+                optionLog.textContent = node.name || `Node ${node.id}`;
+                logNodeFilter.appendChild(optionLog);
+
+                const optionControl = document.createElement('option');
+                optionControl.value = node.id;
+                optionControl.textContent = node.name || `Node ${node.id}`;
+                controlTargetNodeSelect.appendChild(optionControl);
+            });
+        }
+
+        // --- Data Fetching Wrappers ---
+        async function fetchAndRenderNodeStatus() {
+            try {
+                const response = await mockFetch(MOCK_API_BASE_URL + '/status/nodes');
+                if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                const data = await response.json();
+                mockNodesData = data; // Update global mockNodesData
+                renderNodeStatus(); // Now uses the global mockNodesData
+                populateNodeFilterDropdown(mockNodesData); // Populate dropdowns after fetching nodes
+            } catch (error) {
+                showError('#node-status-container', error, '节点状态');
+            }
+        }
+        async function fetchAndRenderLogData() {
+            const selectedNodeId = logNodeFilter.value;
+            const selectedLevel = logLevelFilter.value;
+            let params = { limit: 50 };
+            if (selectedNodeId) params.node_id = selectedNodeId;
+            if (selectedLevel) params.level = selectedLevel;
+
+            try {
+                const response = await mockFetch(MOCK_API_BASE_URL + '/status/logs', { params });
+                if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                const data = await response.json();
+                renderLogData(data); // Render filtered/latest logs
+            } catch (error) {
+                showError('#system-log-timeline', error, '系统日志');
+            }
+        }
+        async function fetchAndRenderBlockData(page = 1) {
+            currentBlockListPage = page;
+            showLoading('#block-list-table tbody');
+            try {
+                const response = await mockFetch(MOCK_API_BASE_URL + '/blocks', { params: { page: currentBlockListPage, per_page: BLOCKS_PER_PAGE } });
+                if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                const data = await response.json();
+                renderBlockData(data);
+            } catch (error) {
+                const blockTableBody = document.getElementById('block-list-table');
+                if(blockTableBody) blockTableBody.innerHTML = `<tr><td colspan="6"><p class="placeholder-text text-red-600">加载区块列表失败: ${error.message}</p></td></tr>`;
+                console.error("Block list fetch error:", error);
+            }
+        }
+        async function fetchAndRenderTxPool() {
+            try {
+                const response = await mockFetch(MOCK_API_BASE_URL + '/transactions/pool');
+                if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                const data = await response.json();
+                renderTransactionPool(data);
+            } catch (error) {
+                showError('#transaction-pool-list', error, '交易池');
+            }
+        }
+        async function fetchAndRenderPerfData() {
+            try {
+                const response = await mockFetch(MOCK_API_BASE_URL + '/performance');
+                if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                const data = await response.json();
+                renderPerformanceData(data);
+                document.getElementById('perf-feedback').textContent = `最后更新: ${formatTimestamp(new Date())}`;
+            } catch (error) {
+                showError(document.getElementById('perf-feedback'), error, '性能统计');
+            }
+        }
+
+        // --- View Switching Logic ---
+        let previousSection = null; // To handle back from tx detail
+
+        function showSection(id, btn) {
+            document.querySelectorAll('main section').forEach(section => section.classList.add('hidden'));
+            document.querySelectorAll('#main-navigation-items button').forEach(button => {
+                button.classList.remove('active-nav-btn');
+                button.classList.add('hover:bg-gray-700'); // Default hover for sidebar
+            });
+
+            // Hide all detail views when switching main sections
+            blockDetailsView.classList.add('hidden');
+            txDetailsView.classList.add('hidden');
+            if (id !== 'blockchain-explorer') { // If not in explorer, ensure list view is default for it
+                blockListView.classList.remove('hidden');
+            }
+
+
+            const sectionToShow = document.getElementById(id);
+            let sectionTitle = "仪表盘";
+            if (sectionToShow) {
+                sectionToShow.classList.remove('hidden');
+                activeSection = id;
+                sectionTitle = btn ? btn.textContent.trim() : id;
+            }
+            if (btn) {
+                btn.classList.add('active-nav-btn');
+                btn.classList.remove('hover:bg-gray-700');
+            }
+            currentSectionTitle.textContent = sectionTitle;
+
+
+            // Trigger data refresh for the newly shown section
+            switch(id) {
+                case 'dashboard':
+                    fetchAndRenderNodeStatus();
+                    fetchAndRenderLogData(); // Fetch initial full logs
+                    break;
+                case 'blockchain-explorer':
+                    blockListView.classList.remove('hidden'); // Default to list view
+                    blockDetailsView.classList.add('hidden');
+                    txDetailsView.classList.add('hidden');
+                    fetchAndRenderBlockData(currentBlockListPage); // Fetch with current page
+                    break;
+                case 'transaction':
+                    fetchAndRenderTxPool();
+                    break;
+                case 'system-detection':
+                    fetchAndRenderPerfData();
+                    if(mockNodesData.length === 0) fetchAndRenderNodeStatus(); // Ensure nodes are populated for control dropdown
+                    break;
+            }
+            // Close sidebar on mobile after navigation
+            if (window.innerWidth < 768 && sidebar.classList.contains('sidebar-open')) {
+                sidebar.classList.remove('sidebar-open');
+                mobileOverlay.style.display = 'none';
+            }
+        }
+
+        async function showBlockDetailsView(blockIdentifier) { // identifier can be height or hash
+            showLoading('#detail-block-transactions-list'); // Show loading for transactions part
+            blockListView.classList.add('hidden');
+            txDetailsView.classList.add('hidden'); // Hide tx detail if it was open
+            blockDetailsView.classList.remove('hidden');
+            currentSectionTitle.textContent = `区块详情: #${blockIdentifier}`;
+            previousSection = 'blockchain-explorer'; // For back button from tx detail
+
+            try {
+                const response = await mockFetch(`${MOCK_API_BASE_URL}/blocks/${blockIdentifier}`);
+                if (!response.ok) throw new Error(`HTTP error ${response.status}, Block ${blockIdentifier} not found`);
+                const blockData = await response.json();
+                renderBlockDetails(blockData);
+            } catch (error) {
+                showError(blockDetailsView, error, `区块 ${blockIdentifier} 详情`);
+                // Show a part of the error in the UI too
+                document.getElementById('detail-block-height').textContent = '错误';
+                document.getElementById('detail-block-transactions-list').innerHTML = `<p class="placeholder-text text-red-500">${error.message}</p>`;
+
+            }
+        }
+        backToBlockListBtn.addEventListener('click', () => {
+            blockDetailsView.classList.add('hidden');
+            txDetailsView.classList.add('hidden');
+            blockListView.classList.remove('hidden');
+            currentSectionTitle.textContent = "区块浏览器 - 区块列表";
+            // No need to re-fetch if data is already paged correctly, unless refresh is desired
+        });
+
+        async function showTransactionDetailsView(txHash, originatingBlockHeight = null) {
+            showLoading(txDetailsView); // Show loading for the entire tx detail view
+            // Determine what to hide/show
+            if (activeSection === 'blockchain-explorer' && blockDetailsView.classList.contains('hidden')) {
+                // Came from block list directly to tx detail (if we implement that) or from tx pool when explorer active
+                blockListView.classList.add('hidden');
+            } else if (activeSection === 'blockchain-explorer') {
+                // Came from block detail's transaction list
+                blockDetailsView.classList.add('hidden'); // Hide block detail, show tx detail
+            } else {
+                // Came from transaction pool list in 'transaction' section
+                // Keep the transaction section visible, just overlay/replace with tx detail
+                // For simplicity, we assume it's a full view swap for now.
+                 document.getElementById('transaction').classList.add('hidden'); // Hide the main transaction section
+            }
+            txDetailsView.classList.remove('hidden');
+            currentSectionTitle.textContent = `交易详情: ${abbreviateHash(txHash)}`;
+            // Store where we came from to go back correctly
+            if (originatingBlockHeight) {
+                txDetailsView.dataset.returnTarget = 'block-details';
+                txDetailsView.dataset.returnIdentifier = originatingBlockHeight;
+            } else if (activeSection === 'transaction') {
+                txDetailsView.dataset.returnTarget = 'transaction-section';
+            } else {
+                 txDetailsView.dataset.returnTarget = 'block-list'; // Default if unknown
+            }
+
+
+            try {
+                const response = await mockFetch(`${MOCK_API_BASE_URL}/transactions/${txHash}`, {method: 'GET'});
+                if (!response.ok) throw new Error(`HTTP error ${response.status}, Transaction ${txHash} not found`);
+                const txData = await response.json();
+                renderTransactionDetails(txData);
+            } catch (error) {
+                 showError(txDetailsView, error, `交易 ${txHash} 详情`);
+            }
+        }
+
+        backFromTxDetailBtn.addEventListener('click', () => {
+            const returnTarget = txDetailsView.dataset.returnTarget;
+            const returnIdentifier = txDetailsView.dataset.returnIdentifier;
+
+            txDetailsView.classList.add('hidden');
+
+            if (returnTarget === 'block-details' && returnIdentifier) {
+                showBlockDetailsView(returnIdentifier); // Re-show block details
+            } else if (returnTarget === 'transaction-section') {
+                showSection('transaction', document.getElementById('transaction-btn')); // Go back to transaction section
+            } else { // Default to block list or current active section
+                showSection(activeSection || 'blockchain-explorer', document.getElementById( (activeSection || 'blockchain-explorer') + '-btn'));
+                 if (activeSection === 'blockchain-explorer' || !activeSection) { // Ensure block list is visible
+                    blockListView.classList.remove('hidden');
+                    currentSectionTitle.textContent = "区块浏览器 - 区块列表";
+                }
+            }
+        });
+
+
+        // --- Event Handlers ---
+        // Transaction Form
+        document.getElementById('transaction-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const feedbackEl = document.getElementById('tx-feedback');
+            const submitBtn = document.getElementById('submit-tx-btn');
+            feedbackEl.textContent = '';
+            feedbackEl.className = 'text-sm mt-2 h-5'; // Reset classes
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i> 处理中...';
+
+            const type = document.getElementById('tx-type').value.trim();
+            const keyPayload = document.getElementById('tx-key').value.trim(); // This is expected to be JSON string by your API doc (key, value)
+            const senderPublicKey = document.getElementById('tx-sender-pk').value.trim();
+
+            let parsedPayload;
+            try {
+                // As per your API (Table 3-6), request is type, key, value, sender_public_key
+                // Assuming 'key' from form is the main content, and 'value' might be part of it or separate
+                // For this mock, let's assume `keyPayload` is a JSON string containing what your API expects for 'key' and 'value'
+                // Or, if your 'key' field in the form *is* the API's 'key' and 'value' is separate or part of this JSON:
+                parsedPayload = JSON.parse(keyPayload); // This should contain what your API expects.
+                                                       // Example: if API needs { "key": "some_data_key", "value": "some_data_value" }
+                                                       // then keyPayload textarea should contain that JSON string.
+            } catch(e) {
+                feedbackEl.textContent = '错误：内容/Key 必须是有效的JSON格式。';
+                feedbackEl.classList.add('text-red-600');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw mr-1"></i> 提交交易';
+                return;
+            }
+
+            const requestBody = {
+                type: type,
+                // Adapt this based on how your actual API expects 'key' and 'value' from "表3-6 交易提交接口设计表"
+                // Option 1: If keyPayload is a JSON string that contains key/value directly
+                // ...JSON.parse(keyPayload), // if keyPayload is like '{"myKey":"foo", "myValue":"bar"}'
+                // Option 2: If keyPayload is meant for the 'key' field and 'value' is separate or implied
+                key: keyPayload, // Or parsedPayload.key if keyPayload is a JSON with a "key" field
+                // value: parsedPayload.value, // if your API needs a separate 'value'
+                sender_public_key: senderPublicKey
+            };
+
+
+            try {
+                const response = await mockFetch(MOCK_API_BASE_URL + '/transactions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                const result = await response.json(); // Try to parse JSON even for errors
+
+                if (!response.ok) {
+                    throw new Error(result.message || `HTTP error ${response.status}`);
+                }
+
+                feedbackEl.textContent = `${result.message} (ID: ${abbreviateHash(result.transaction_id)})`;
+                feedbackEl.classList.add('text-green-600');
+                document.getElementById('transaction-form').reset(); // Clear form
+                fetchAndRenderTxPool(); // Refresh pool
+            } catch (error) {
+                feedbackEl.textContent = `交易失败: ${error.message}`;
+                feedbackEl.classList.add('text-red-600');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw mr-1"></i> 提交交易';
+            }
+        });
+
+        // System Control Buttons
+        ['start-node-btn', 'stop-node-btn', 'crash-node-btn', 'delay-network-btn'].forEach(btnId => {
+            const button = document.getElementById(btnId);
+            if (button) {
+                button.addEventListener('click', async (e) => {
+                    const action = e.currentTarget.dataset.action;
+                    const targetNodeId = controlTargetNodeSelect.value;
+                    const feedbackEl = document.getElementById('control-feedback');
+                    const originalText = e.currentTarget.innerHTML;
+
+                    feedbackEl.textContent = `正在执行...`;
+                    feedbackEl.className = 'text-sm mt-4 p-2 rounded bg-gray-100 h-10 flex items-center text-gray-600'; // Reset class
+                    e.currentTarget.disabled = true;
+                    e.currentTarget.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i>';
+
+                    let apiEndpoint = `${MOCK_API_BASE_URL}/control/node/${targetNodeId}/${action}`; // Default for node-specific actions
+                    let requestBody = {};
+
+                    if (action === "delay_network") {
+                        apiEndpoint = `${MOCK_API_BASE_URL}/control/network/delay`; // Different endpoint for network delay
+                        const delayMsInput = document.getElementById('control-network-delay-ms');
+                        if (!targetNodeId) {
+                             feedbackEl.textContent = '错误: 请选择目标节点以应用网络延迟。';
+                             feedbackEl.classList.add('text-red-500', 'bg-red-50');
+                             e.currentTarget.disabled = false;
+                             e.currentTarget.innerHTML = originalText;
+                             return;
+                        }
+                        requestBody = {
+                            source_node_id: "any", // Or make this selectable too
+                            destination_node_id: targetNodeId,
+                            delay_ms: parseInt(delayMsInput.value) || 0,
+                            jitter_ms: 0, // Add if needed
+                            duration_seconds: 60 // Add if needed
+                        };
+                    } else if (!targetNodeId) { // For other actions, targetNodeId is mandatory
+                        feedbackEl.textContent = '错误: 请选择一个目标节点。';
+                        feedbackEl.classList.add('text-red-500', 'bg-red-50');
+                        e.currentTarget.disabled = false;
+                        e.currentTarget.innerHTML = originalText;
+                        return;
+                    }
+
+
+                    try {
+                        const response = await mockFetch(apiEndpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(requestBody) // Empty body for start/stop/crash if not needed by API
+                        });
+                        const result = await response.json();
+
+                        if (!response.ok) {
+                            throw new Error(result.message || `操作失败 (status ${response.status})`);
+                        }
+                        feedbackEl.textContent = `成功: ${result.message}`;
+                        feedbackEl.classList.add('text-green-500', 'bg-green-50');
+
+                        // If a node was stopped/started/crashed, refresh node status view if it's active
+                        if (activeSection === 'dashboard' && ['start_node', 'stop_node', 'crash_node'].includes(action)) {
+                            setTimeout(fetchAndRenderNodeStatus, 300); // Slight delay for effect
+                        }
+
+                    } catch(error) {
+                        feedbackEl.textContent = `失败: ${error.message}`;
+                        feedbackEl.classList.add('text-red-500', 'bg-red-50');
+                    } finally {
+                        e.currentTarget.disabled = false;
+                        e.currentTarget.innerHTML = originalText;
+                    }
+                });
+            }
+        });
+
+        // Log Filter Buttons
+        applyLogFilterBtn.addEventListener('click', fetchAndRenderLogData);
+        clearLogFilterBtn.addEventListener('click', () => {
+            logNodeFilter.value = "";
+            logLevelFilter.value = "";
+            fetchAndRenderLogData(); // Fetch all logs again
+        });
+
+        // Refresh Blocks Button
+        refreshBlocksBtn.addEventListener('click', () => fetchAndRenderBlockData(currentBlockListPage));
+
+
+        // --- Authentication & UI Setup ---
+        function handleLogout() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('username');
+            localStorage.removeItem('userId');
+            // Hide main UI, then redirect
+            document.querySelectorAll('.main-application-content, .main-application-sidebar, .main-application-header').forEach(el => el.style.display = 'none');
+            window.location.href = 'login.html'; // Make sure you have login.html
+        }
+
+        function checkAuthAndSetupUI() {
+            const token = localStorage.getItem('authToken');
+            const username = localStorage.getItem('username') || '用户';
+
+            // Update sidebar username display
+            const sidebarUsernameEl = document.getElementById('sidebar-username');
+            if (sidebarUsernameEl) sidebarUsernameEl.textContent = username;
+
+
+            if (!token) {
+                // Allow a very brief moment for a potential silent auth check if you had one, then redirect.
+                // For this pure mock, we redirect immediately if no token.
+                setTimeout(() => { // Add a micro-delay to ensure DOM is minimally ready for manipulation if needed
+                    if (!localStorage.getItem('authToken')) { // Double check, in case a concurrent auth check completed
+                         console.log("No token found, redirecting to login.");
+                         window.location.href = 'login.html';
+                    }
+                }, 10); // 10ms delay
+                return false;
+            }
+
+            // Token exists, show main UI
+            document.querySelectorAll('.main-application-content, .main-application-sidebar, .main-application-header').forEach(el => {
+                if (el.classList.contains('main-application-sidebar') || el.classList.contains('main-application-header')) {
+                    el.style.display = 'flex'; // Sidebar and Header are flex containers
+                } else {
+                    el.style.display = 'block'; // Main content area
+                }
+            });
+
+            if (document.getElementById('logout-btn')) {
+                document.getElementById('logout-btn').addEventListener('click', handleLogout);
+            }
+            return true;
+        }
+
+        // --- Sidebar Toggle for Mobile ---
+        if (mobileOpenSidebarBtn && mobileCloseSidebarBtn && sidebar && mobileOverlay && mainContentArea) {
+            mobileOpenSidebarBtn.addEventListener('click', () => {
+                sidebar.classList.add('sidebar-open');
+                mobileOverlay.style.display = 'block';
+                mainContentArea.style.marginLeft = '0'; // Ensure content doesn't shift unexpectedly
+            });
+            mobileCloseSidebarBtn.addEventListener('click', () => {
+                sidebar.classList.remove('sidebar-open');
+                mobileOverlay.style.display = 'none';
+                 if (window.innerWidth >= 768) { // md breakpoint
+                    mainContentArea.style.marginLeft = sidebar.offsetWidth + 'px';
+                }
+            });
+            mobileOverlay.addEventListener('click', () => {
+                sidebar.classList.remove('sidebar-open');
+                mobileOverlay.style.display = 'none';
+                 if (window.innerWidth >= 768) {
+                    mainContentArea.style.marginLeft = sidebar.offsetWidth + 'px';
+                }
+            });
+             // Adjust main content margin based on sidebar visibility on larger screens
+            const observer = new ResizeObserver(() => {
+                if (window.innerWidth >= 768) { // Tailwind's 'md' breakpoint
+                    sidebar.classList.remove('sidebar-open'); // Ensure it's not in mobile open state
+                    mobileOverlay.style.display = 'none';
+                    mainContentArea.style.marginLeft = sidebar.offsetWidth + 'px';
+                } else {
+                    if (!sidebar.classList.contains('sidebar-open')) { // if mobile and sidebar is closed
+                         mainContentArea.style.marginLeft = '0';
+                    }
+                }
+            });
+            observer.observe(document.body);
+        } else {
+            console.warn("Mobile sidebar toggle buttons or sidebar/overlay element not found.");
+        }
+
+
+        // --- Update current time and year ---
+        function updateTime() {
+            if (currentTimeDisplay) {
+                currentTimeDisplay.textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            }
+        }
+        if (currentYearDisplay) currentYearDisplay.textContent = new Date().getFullYear();
+        setInterval(updateTime, 1000);
+        updateTime();
+
+
+        // --- Initial Load & Periodic Fetching ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const isAuthenticated = checkAuthAndSetupUI();
+
+            if (isAuthenticated) {
+                initializeMockSystemLogs(); // Initialize logs for filtering
+                // Fetch initial node data to populate filters, then show dashboard
+                mockFetch(MOCK_API_BASE_URL + '/status/nodes').then(response => response.json()).then(data => {
+                    mockNodesData = data;
+                    populateNodeFilterDropdown(mockNodesData);
+                    // Show dashboard by default after nodes are loaded for filters
+                    const dashboardButton = document.getElementById('dashboard-btn');
+                    if (dashboardButton) {
+                        showSection('dashboard', dashboardButton);
+                    }
+                }).catch(error => {
+                    console.error("Initial node fetch failed:", error);
+                     // Still try to show dashboard, it will show error for nodes
+                    const dashboardButton = document.getElementById('dashboard-btn');
+                    if (dashboardButton) showSection('dashboard', dashboardButton);
+                });
+
+
+                // Set up polling intervals only if authenticated
+                setInterval(() => { if (activeSection === 'dashboard') fetchAndRenderNodeStatus(); }, POLLING_INTERVAL_STATUS);
+                setInterval(() => { if (activeSection === 'dashboard') fetchAndRenderLogData(); }, POLLING_INTERVAL_LOGS);
+                setInterval(() => { if (activeSection === 'blockchain-explorer' && blockDetailsView.classList.contains('hidden') && txDetailsView.classList.contains('hidden')) fetchAndRenderBlockData(currentBlockListPage); }, POLLING_INTERVAL_BLOCKS);
+                setInterval(() => { if (activeSection === 'transaction') fetchAndRenderTxPool(); }, POLLING_INTERVAL_POOL);
+                setInterval(() => { if (activeSection === 'system-detection') fetchAndRenderPerfData(); }, POLLING_INTERVAL_PERF);
+            }
+        });
+
+    </script>
+</body>
+</html>

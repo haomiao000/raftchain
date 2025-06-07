@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- 指定文档的字符编码为 UTF-8。UTF-8 是国际标准，支持包括中文在内的多种字符 -->
+    <meta charset="UTF-8">
+    <!-- 这对于响应式网页设计至关重要。它将视口的宽度设置为设备的宽度，并将初始缩放级别设置为1。这使得你的页面能适应不同的屏幕尺寸（桌面、平板、手机）。 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 设置显示在浏览器标签页或窗口标题栏的标题 -->
+    <title>Raft Blockchain System</title>
+    <!-- 行代码加载 Tailwind CSS。Tailwind 是一个“实用工具优先”的 CSS 框架，它允许你通过直接在 HTML 中应用预定义的类来为元素设置样式 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 这行代码加载 Font Awesome，一个流行的图标库。它允许你使用类似 <i class="fa-solid fa-gauge fa-fw"></i> 这样的标签来显示图标 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.2/css/all.min.css">
+    <style>
+
+        /* 定义了导航栏中当前激活按钮的样式（蓝色背景，白色文字） */
+        .active-nav-btn {
+            background-color: #2461e6;
+            color: white;
+        }
+
+        /* 定义了日志条目的通用样式（白色背景、边框、圆角等） */
+        .log-entry {
+            @apply bg-white p-4 border border-gray-300 rounded mb-2 relative;
+        }
+
+        /* 定义了日志条目中时间戳、消息内容和日志级别的样式 */
+        .log-timestamp {
+            @apply text-gray-500 text-xs font-sans border-b border-gray-300 pb-2;
+        }
+        .log-message {
+            @apply text-gray-800 pt-2;
+        }
+        .log-level {
+            @apply text-xs font-bold ml-1 mr-1 p-1 rounded absolute top-4 right-4;
+        }
+
+        /* 根据日志级别（信息、成功、警告、错误）为日志级别标签设置不同的背景色和文字颜色，以提供更好的视觉区分 */
+        .log-level-info { background-color: #bae6fd; color: #0c546e; }
+        .log-level-success { background-color: #d1fae5; color: #065f46; }
+        .log-level-warning { background-color: #fef3c7; color: #92400e; }
+        .log-level-error { background-color: #fee2e2; color: #991b1b; }
+
+        /* 加载中或无数据时显示的占位文本样式 */
+        .placeholder-text {
+            @apply text-gray-500 italic text-center p-4;
+        }
+
+        /* 定义了一个简单的加载动画（旋转的小圈） */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            margin: 20px auto;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .main-application-content, /* 用于 <main> */
+        .main-application-nav       /* 用于 <header> 中的主导航和认证控件 */
+        {
+            display: none; /* 使用 !important 确保初始隐藏生效 */
+        }
+    </style>
+</head>
+<!-- 包含了网页所有可见的内容 -->
+<!-- 定义了整个页面的基本样式：浅灰色背景、深灰色文字、使用 flex 布局使页脚能固定在底部 -->
+<body class="bg-gray-100 text-gray-800 flex flex-col min-h-screen">
+    <!-- 页面顶部的导航栏
+    w-full: 宽度占满。
+    bg-gray-800 text-white: 深灰色背景，白色文字。
+    shadow-sm: 轻微的阴影效果。
+    p-4: 内边距。
+    flex justify-start items-center: 使用 flex 布局，子元素靠左对齐，垂直居中。
+    sticky top-0 z-10: 使导航栏在滚动时固定在页面顶部 (sticky top-0)，z-10 确保它在其他内容之上。 -->
+    <header class="w-full bg-gray-800 text-white shadow-sm p-4 flex justify-start items-center sticky top-0 z-10">
+        <h1 class="text-lg font-bold mx-4">区块链监控系统</h1>
+        <!-- 导航链接的容器。flex-grow 使它占据剩余空间，justify-end 使按钮靠右。 -->
+        <!-- 包含四个 <button> 元素，分别对应“仪表盘”、“区块浏览器”、“交易”和“系统检测”。
+        id 属性 (如 dashboard-btn) 用于 JavaScript 识别和操作这些按钮。
+        class 属性包含 Tailwind 样式以及 hover:bg-gray-700 (鼠标悬停时改变背景色)。
+        onclick="showSection('dashboard', this)": 点击按钮时会调用 JavaScript 中的 showSection 函数，切换显示的内容区域。this 指向被点击的按钮本身。
+        <i class="fa-solid ..."></i>: 使用 Font Awesome 显示图标。 -->
+        <nav id="main-navigation-items" class="main-application-nav flex justify-end flex-grow">
+            <button id="dashboard-btn" class="hover:bg-gray-700 p-2 rounded mx-2 active-nav-btn" onclick="showSection('dashboard', this)"><i class="fa-solid fa-gauge fa-fw"></i> 仪表盘</button>
+            <button id="blockchain-explorer-btn" class="hover:bg-gray-700 p-2 rounded mx-2" onclick="showSection('blockchain-explorer', this)"><i class="fa-solid fa-book fa-fw"></i> 区块浏览器</button>
+            <button id="transaction-btn" class="hover:bg-gray-700 p-2 rounded mx-2" onclick="showSection('transaction', this)"><i class="fa-solid fa-arrow-right fa-fw"></i> 交易</button>
+            <button id="system-detection-btn" class="hover:bg-gray-700 p-2 rounded mx-2" onclick="showSection('system-detection', this)"><i class="fa-solid fa-bug fa-fw"></i> 系统检测</button>
+        </nav>
+        <!-- 右上角的认证控制区域 -->
+        <div id="auth-controls" class="main-application-nav ml-auto flex items-center">
+            <button id="logout-btn" class="bg-red-500 hover:bg-red-700 text-white p-2 rounded mx-2 text-sm">
+                <i class="fa-solid fa-sign-out-alt fa-fw"></i> 登出
+            </button>
+        </div>
+    </header>
+
+    <!-- 页面的主要内容区域。flex-grow 确保它填充 header 和 footer 之间的可用空间 -->
+    <main class="w-full p-4 flex-grow main-application-content">
+        <!-- “仪表盘”部分 -->
+        <!-- 初始时是可见的 -->
+        <section id="dashboard" class="bg-white rounded shadow-sm p-4 mb-4">
+            <h2 class="text-xl font-semibold mb-4 border-b pb-2">节点状态监控面板</h2>
+            <div id="node-status-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 min-h-[150px]">
+                <div class="spinner"></div> 
+            </div>
+            <div class="mt-6">
+                <div class="flex justify-between items-center mb-4 border-b pb-2">
+                    <h2 class="text-xl font-semibold">系统日志展示</h2>
+                    <a href="log-details.html" target="_blank" class="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline">
+                        高级筛选与详情 &rarr;
+                    </a>
+                </div>
+                <div id="system-log-timeline" class="bg-gray-50 p-3 rounded max-h-96 overflow-y-auto border min-h-[150px]">
+                    <div class="spinner"></div> 
+                </div>
+            </div>
+        </section>
+
+        <!-- 初始时是隐藏的，通过 JavaScript 的 showSection 函数来显示 -->
+        <section id="blockchain-explorer" class="hidden bg-white rounded shadow-sm p-6 mb-4 space-y-6">
+    
+            <div id="block-list-view">
+                <h2 class="text-2xl font-semibold mb-4 text-gray-700">区块链浏览器</h2>
+                <div>
+                    <h3 class="text-lg font-semibold mb-2">区块列表</h3>
+                    <div class="overflow-x-auto border rounded-md">
+                        <table class="w-full text-sm min-w-[600px]">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="p-3 text-left font-semibold text-gray-600">区块高度</th>
+                                    <th class="p-3 text-left font-semibold text-gray-600">时间戳</th>
+                                    <th class="p-3 text-left font-semibold text-gray-600">区块哈希</th>
+                                    <th class="p-3 text-left font-semibold text-gray-600">前一区块哈希</th>
+                                    <th class="p-3 text-left font-semibold text-gray-600">交易数量</th>
+                                </tr>
+                            </thead>
+                            <tbody id="block-list-table">
+                                <tr><td colspan="5"><div class="spinner"></div></td></tr> 
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        
+            <div id="block-details-view" class="hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-semibold text-gray-700">区块详情: #<span id="detail-block-height-title"></span></h2>
+                    <button id="back-to-list-btn" class="flex items-center text-sm font-medium text-blue-600 hover:underline">
+                        <i class="fa-solid fa-arrow-left fa-fw mr-2"></i>返回列表
+                    </button>
+                </div>
+                
+                <div class="p-6 border rounded-md bg-gray-50 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                        <div><strong>区块高度:</strong> <span id="detail-block-height" class="font-mono text-gray-800"></span></div>
+                        <div><strong>时间戳:</strong> <span id="detail-block-timestamp" class="font-mono text-gray-800"></span></div>
+                        <div class="md:col-span-2"><strong>区块哈希:</strong> <code id="detail-block-hash" class="block bg-gray-200 p-2 rounded text-xs mt-1 break-all"></code></div>
+                        <div class="md:col-span-2"><strong>前一区块哈希:</strong> <code id="detail-block-prev-hash" class="block bg-gray-200 p-2 rounded text-xs mt-1 break-all"></code></div>
+                        <div><strong>交易数量:</strong> <span id="detail-block-tx-count" class="font-mono text-gray-800"></span></div>
+                        <div><strong>Raft任期:</strong> <span id="detail-block-term" class="font-mono text-gray-800">N/A</span></div>
+                        <div><strong>提议节点ID:</strong> <span id="detail-block-proposer" class="font-mono text-gray-800">N/A</span></div>
+                        <div><strong>区块大小:</strong> <span id="detail-block-size" class="font-mono text-gray-800">N/A</span></div>
+                    </div>
+        
+                    <div class="pt-4 border-t">
+                        <h3 class="text-lg font-semibold text-gray-700">区块内交易</h3>
+                        <div id="detail-transactions-list" class="mt-2 p-4 min-h-[50px] bg-white border rounded">
+                            </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- <section id="transaction" class="hidden ...">: “交易”部分。 -->
+        <!-- 初始时隐藏。
+        包含两个子区域，使用 grid 布局。
+        左侧：提交新交易
+        一个表单 (<form id="transaction-form">)，包含发送者、接收者和金额的输入框 (<input>)。
+        required 属性表示这些字段是必填的。
+        <button type="submit" id="submit-tx-btn" ...>: 提交交易按钮。
+        <div id="tx-feedback" ...>: 用于显示交易提交后的反馈信息（成功或失败）。
+        右侧：交易池
+        <ul id="transaction-pool-list" ...>: 用于显示当前交易池中待处理交易的列表。初始时包含一个加载动画。 -->
+        <section id="transaction" class="hidden bg-white rounded shadow-sm p-4 mb-4">
+            <h2 class="text-xl font-semibold mb-4 border-b pb-2">交易</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-lg font-semibold mb-2">提交新交易</h3>
+                    <form id="transaction-form" class="flex flex-col gap-4">
+                        <div>
+                            <label for="tx-type" class="text-sm font-bold block mb-1 text-gray-700">交易类型:</label>
+                            <select id="tx-type" name="type" required class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                                <option value="transfer">转账 (Transfer)</option>
+                                <option value="data_storage">数据存储 (Data Storage)</option>
+                                <option value="contract_call">合约调用 (Contract Call)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="tx-sender-pk" class="text-sm font-bold block mb-1 text-gray-700">发送者公钥 (Sender Public Key):</label>
+                            <input type="text" id="tx-sender-pk" name="senderPublicKey" required class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs" placeholder="0x... or your public key" value="mock_sender_public_key_123">
+                        </div>
+                    
+                        <div id="transaction-fields-container" class="space-y-4 border-t pt-4">
+                            <div id="transfer-fields">
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="transfer-receiver" class="text-sm font-bold block mb-1 text-gray-700">接收者地址:</label>
+                                        <input type="text" id="transfer-receiver" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Receiver's address">
+                                    </div>
+                                    <div>
+                                        <label for="transfer-amount" class="text-sm font-bold block mb-1 text-gray-700">金额:</label>
+                                        <input type="number" id="transfer-amount" min="0" step="any" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., 100">
+                                    </div>
+                                </div>
+                            </div>
+                    
+                            <div id="data-storage-fields" class="hidden">
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="storage-key" class="text-sm font-bold block mb-1 text-gray-700">数据键 (Key):</label>
+                                        <input type="text" id="storage-key" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., user_profile_123">
+                                    </div>
+                                    <div>
+                                        <label for="storage-value" class="text-sm font-bold block mb-1 text-gray-700">数据值 (Value):</label>
+                                        <textarea id="storage-value" rows="3" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Enter string or JSON data"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div id="contract-call-fields" class="hidden">
+                                <div class="space-y-4">
+                                    <div>
+                                        <label for="contract-address" class="text-sm font-bold block mb-1 text-gray-700">合约地址:</label>
+                                        <input type="text" id="contract-address" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Contract's address">
+                                    </div>
+                                    <div>
+                                        <label for="contract-params" class="text-sm font-bold block mb-1 text-gray-700">调用参数 (JSON格式):</label>
+                                        <textarea id="contract-params" rows="3" class="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs" placeholder='{ "function": "mint", "args": ["user1", 1000] }'></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" id="submit-tx-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out">
+                            <i class="fa-solid fa-paper-plane fa-fw"></i> 提交交易
+                        </button>
+                        <div id="tx-feedback" class="text-sm mt-2 min-h-[20px]"></div>
+                    </form>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-2">交易池</h3>
+                    <ul id="transaction-pool-list" class="list-none p-3 bg-gray-50 border rounded max-h-60 overflow-y-auto min-h-[100px]">
+                        <div class="spinner"></div> </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- <section id="system-detection" class="hidden ...">: “系统检测”部分。
+        初始时隐藏。
+        节点控制面板 (测试用)
+        包含几个按钮（启动节点、停止节点、模拟节点崩溃、模拟网络延迟），用于测试目的。
+        id 属性 (如 start-node-btn) 用于 JavaScript 绑定事件。
+        <div id="control-feedback" ...>: 用于显示执行控制操作后的反馈信息。
+        性能统计
+        显示交易吞吐量 (TPS)、区块生成间隔、节点间消息延迟等性能指标。
+        对应的 <p> 标签 (如 <p id="tps-statistic">) 初始内容为 --，JavaScript 会更新这些值。
+        <div id="perf-feedback" ...>: 用于显示加载性能数据时的反馈。 -->
+        <section id="system-detection" class="hidden bg-white rounded shadow-sm p-6 mb-4 space-y-8">
+            <h2 class="text-2xl font-semibold text-gray-800 border-b pb-3">系统控制与性能</h2>
+            
+            <div class="mb-6">
+                <h3 class="text-lg font-semibold mb-4 text-gray-700">节点控制面板 (模拟操作)</h3>
+                <div class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <select id="control-target-node" class="col-span-full md:col-span-1 p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                            <option value="">-- 选择目标节点 --</option>
+                            </select>
+                        <button id="start-node-btn" class="flex items-center justify-center p-2 rounded-md font-semibold text-white bg-green-500 hover:bg-green-600 transition-colors">
+                            <i class="fa-solid fa-play fa-fw mr-2"></i>启动节点
+                        </button>
+                        <button id="stop-node-btn" class="flex items-center justify-center p-2 rounded-md font-semibold text-white bg-red-500 hover:bg-red-600 transition-colors">
+                            <i class="fa-solid fa-stop fa-fw mr-2"></i>停止节点
+                        </button>
+                        <button id="crash-node-btn" class="flex items-center justify-center p-2 rounded-md font-semibold text-black bg-yellow-400 hover:bg-yellow-500 transition-colors">
+                            <i class="fa-solid fa-bolt fa-fw mr-2"></i>模拟崩溃
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
+                        <div class="col-span-full md:col-span-2">
+                            <label for="control-network-delay-ms" class="text-sm font-medium text-gray-600 block mb-1">模拟网络延迟 (ms) 到目标节点:</label>
+                            <input type="number" id="control-network-delay-ms" value="100" class="p-2 w-full border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        </div>
+                        <div class="col-span-full md:col-span-2 self-end">
+                            <button id="delay-network-btn" class="w-full flex items-center justify-center p-2 rounded-md font-semibold text-white bg-purple-500 hover:bg-purple-600 transition-colors">
+                                <i class="fa-solid fa-clock fa-fw mr-2"></i>应用延迟
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="control-feedback" class="text-sm mt-4 p-3 rounded-md bg-gray-100 min-h-[44px] flex items-center text-gray-700"></div>
+            </div>
+        
+            <div>
+                <h3 class="text-lg font-semibold mb-4 text-gray-700">实时性能统计</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                    <div class="bg-blue-50 p-4 rounded-lg shadow">
+                        <h4 class="text-sm font-bold text-blue-700 mb-1">平均 TPS</h4>
+                        <p id="tps-statistic" class="text-3xl font-semibold text-blue-600">--</p>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg shadow">
+                        <h4 class="text-sm font-bold text-green-700 mb-1">区块生成间隔</h4>
+                        <p id="block-generation-interval" class="text-3xl font-semibold text-green-600">--</p>
+                    </div>
+                    <div class="bg-yellow-50 p-4 rounded-lg shadow">
+                        <h4 class="text-sm font-bold text-yellow-700 mb-1">共识平均延迟</h4>
+                        <p id="node-message-latency" class="text-3xl font-semibold text-yellow-600">--</p>
+                    </div>
+                        <div class="bg-indigo-50 p-4 rounded-lg shadow">
+                        <h4 class="text-sm font-bold text-indigo-700 mb-1">Leader选举频率</h4>
+                        <p id="leader-election-rate" class="text-3xl font-semibold text-indigo-600">--</p>
+                    </div>
+                </div>
+                <div id="perf-feedback" class="text-sm mt-4 text-gray-500 min-h-[20px]"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 页面底部的页脚。 -->
+    <footer class="w-full bg-gray-700 text-white text-center p-3 text-xs">
+        Raft Blockchain Monitoring System &copy; 2025
+    </footer>
+
+
+    <!-- (JavaScript 逻辑) -->
+    <script>
+        // --- Configuration ---
+        const API_BASE_URL = 'http://127.0.0.1:8080';
+
+        // 节点状态的轮询间隔
+        const POLLING_INTERVAL_STATUS = 5000; // ms
+
+        // 系统日志的轮询间隔
+        const POLLING_INTERVAL_LOGS = 10000; // ms
+
+        // 区块列表的轮询间隔
+        const POLLING_INTERVAL_BLOCKS = 15000; // ms
+
+        // 交易池的轮询间隔
+        const POLLING_INTERVAL_POOL = 7000;  // ms
+
+        // 性能统计的轮询间隔（10秒）。 轮询是指每隔一段时间自动去获取最新数据。
+        const POLLING_INTERVAL_PERF = 10000; // ms
+
+        // 工具函数
+        // 在指定的容器元素中显示加载动画（spinner）
+        function showLoading(containerElement) {
+            containerElement.innerHTML = '<div class="spinner"></div>';
+        }
+        // 在指定的容器元素中显示“暂无数据”或自定义的空状态消息。
+        function showEmpty(containerElement, message = "暂无数据") {
+            containerElement.innerHTML = `<p class="placeholder-text">${message}</p>`;
+        }
+        // 在指定的容器元素中显示加载失败的错误信息。
+        function showError(containerElement, error, context = "") {
+            console.error(`Error loading ${context}:`, error);
+            let errorMessage = "加载失败";
+            if (typeof error === 'string') {
+                errorMessage += `: ${error}`;
+            } else if (error && error.message) {
+                errorMessage += `: ${error.message}`;
+            }
+            if (error && error.status === 401) {
+                errorMessage = "认证失败或已过期，请重新登录。";
+            }
+            containerElement.innerHTML = `<p class="placeholder-text text-red-600">${errorMessage}</p>`;
+        }
+
+        // 将 ISO 格式的时间字符串
+        function formatTimestamp(isoString) {
+            if (!isoString) return 'N/A';
+            try {
+                const date = new Date(isoString);
+                return date.toLocaleString('sv-SE'); // Swedish format is close to YYYY-MM-DD HH:MM:SS
+            } catch (e) {
+                return isoString; // Return original if formatting fails
+            }
+        }
+
+        // 缩短长哈希字符串，显示开头和结尾的一部分，中间用 "..." 代替，方便展示
+        function abbreviateHash(hash, start = 6, end = 4) {
+             if (!hash || hash.length < (start + end + 3)) return hash;
+             return `${hash.substring(0, start)}...${hash.substring(hash.length - end)}`;
+        }
+
+        // 新增 fetchWithAuth 函数：这是一个可复用的函数，它会自动为你的API请求添加认证令牌（Token），并能处理因令牌失效导致的 401 错误，可以说是所有后续数据请求的基石
+        // --- NEW: Reusable Authenticated Fetch Function ---
+        async function fetchWithAuth(url, options = {}) {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                // 如果没有token，直接跳转到登录页
+                window.location.href = 'login.html';
+                // 抛出一个错误，中断后续的fetch操作
+                throw { message: "用户未认证", status: 401 };
+            }
+
+            const headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            };
+
+            const response = await fetch(url, { ...options, headers });
+
+            if (response.status === 401) {
+                // 如果token无效或过期，后端会返回401
+                handleLogout(); // 清理并跳转
+                throw { message: "认证已过期，请重新登录", status: 401 };
+            }
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: `HTTP error! status: ${response.status}` }));
+                throw new Error(errorData.error || `请求失败: ${response.statusText}`);
+            }
+
+            return response.json(); // 返回解析后的JSON数据
+        }
+
+        // API 获取函数
+        // API 获取函数 (API Fetch Functions)
+        // 这些函数都使用了 async/await 语法来处理异步操作（比如网络请求）。目前，它们都是通过 new Promise(resolve => setTimeout(...)) 来模拟网络请求和延时，并返回模拟数据。在实际项目中，// Real fetch: 下面的注释部分会被替换为真实的 Workspace API 调用。
+
+        // WorkspaceNodeStatus(): 模拟获取节点状态数据，然后调用 renderNodeStatus() 来更新页面。
+        // WorkspaceLogData(): 模拟获取系统日志数据，然后调用 renderLogData() 来更新页面。
+        // WorkspaceBlockData(): 模拟获取区块列表数据，然后调用 renderBlockData() 来更新页面。
+        // WorkspaceTransactionPool(): 模拟获取交易池数据，然后调用 renderTransactionPool() 来更新页面。
+        // WorkspacePerformanceData(): 模拟获取性能统计数据，并直接更新页面上对应的元素内容。
+        // renderNodeStatus(nodeStatusData): 根据节点数据生成节点状态卡片，并添加到 node-status-container 中。它会根据节点的角色（领导者、跟随者、候选者）和状态（活跃、离线）显示不同的颜色和图标。
+        // renderLogData(logData): 根据日志数据生成日志条目，并添加到 system-log-timeline 中。它会根据日志级别显示不同的背景色。还会处理日志的自动滚动。
+        // renderBlockData(blockData): 根据区块数据生成表格行，并添加到 block-list-table 中。
+        // renderTransactionPool(poolData): 根据交易池数据生成列表项，并添加到 transaction-pool-list 中。
+
+        async function fetchNodeStatus() {
+            const container = document.getElementById('node-status-container');
+            try {
+                // --- 修改：从模拟数据改为真实API调用 ---
+                const data = await fetchWithAuth(`${API_BASE_URL}/api/v1/node/GetNodeStatus`);
+                renderNodeStatus(data);
+            } catch (error) {
+                showError(container, error, '节点状态');
+            }
+        }
+    
+
+        // Fetch Log Data (Simulated)
+        async function fetchLogData() {
+            const logTimeline = document.getElementById('system-log-timeline');
+            try {
+                // --- 修改：从模拟数据改为真实API调用 ---
+                const data = await fetchWithAuth(`${API_BASE_URL}/api/v1/log/GetSystemLogs`);
+                renderLogData(data);
+            } catch (error) {
+                showError(logTimeline, error, '系统日志');
+            }
+        }
+
+        // Fetch Block Data (Simulated)
+        async function fetchBlockData() {
+             const blockTableBody = document.getElementById('block-list-table');
+             try {
+                 // Real fetch: const response = await fetch(`${API_BASE_URL}/blocks?limit=20`); // Example: get latest 20
+                 // Simulation:
+                 let lastHash = `0x${Math.random().toString(16).substring(2, 10)}`;
+                 const response = await new Promise(resolve => setTimeout(() => resolve({
+                     ok: true,
+                     json: async () => Array.from({length: 10 + Math.floor(Math.random() * 10)}, (_, i) => {
+                         const currentHash = lastHash;
+                         lastHash = `0x${Math.random().toString(16).substring(2, 10)}`;
+                         return {
+                             height: 100 - i,
+                             timestamp: new Date(Date.now() - i * 10000 * (1 + Math.random())).toISOString(),
+                             hash: currentHash,
+                             previousHash: lastHash,
+                             transactionCount: Math.floor(Math.random() * 10)
+                         };
+                     })
+                 }), 1200));
+
+                 if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                 }
+                 const data = await response.json();
+                 renderBlockData(data);
+             } catch (error) {
+                 showError(blockTableBody.parentNode, error); // Show error in the table's container
+             }
+        }
+
+        // Fetch Transaction Pool Data (Simulated)
+        async function fetchTransactionPool() {
+            const poolList = document.getElementById('transaction-pool-list');
+            try {
+                // Real fetch: const response = await fetch(`${API_BASE_URL}/transactions/pool`);
+                // Simulation:
+                 const response = await new Promise(resolve => setTimeout(() => resolve({
+                     ok: true,
+                     json: async () => Array.from({length: Math.floor(Math.random() * 6)}, (_, i) => ({
+                        id: `tx_${Math.random().toString(16).substring(2, 12)}`,
+                        sender: `Sender${i+1}`,
+                        receiver: `Receiver${i+1}`,
+                        amount: (Math.random() * 100).toFixed(2)
+                     }))
+                 }), 600));
+
+                 if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                 }
+                 const data = await response.json();
+                 renderTransactionPool(data);
+            } catch (error) {
+                showError(poolList, error);
+            }
+        }
+
+         // Fetch Performance Data (Simulated)
+         async function fetchPerformanceData() {
+             const tpsElement = document.getElementById('tps-statistic');
+             const intervalElement = document.getElementById('block-generation-interval');
+             const latencyElement = document.getElementById('node-message-latency');
+             const feedbackElement = document.getElementById('perf-feedback');
+             feedbackElement.textContent = ''; // Clear previous feedback
+
+             try {
+                 // Real fetch: const response = await fetch(`${API_BASE_URL}/performance`);
+                 // Simulation:
+                 const response = await new Promise(resolve => setTimeout(() => resolve({
+                     ok: true,
+                     json: async () => ({
+                         tps: (Math.random() * 25 + 5).toFixed(1), // Simulate 5-30 TPS
+                         blockInterval: (Math.random() * 5 + 8).toFixed(1), // Simulate 8-13s interval
+                         avgLatency: (Math.random() * 60 + 20).toFixed(0) // Simulate 20-80ms latency
+                     })
+                 }), 400));
+
+                 if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                 }
+                 const data = await response.json();
+                 tpsElement.textContent = data.tps || '--';
+                 intervalElement.textContent = data.blockInterval ? `${data.blockInterval}s` : '--';
+                 latencyElement.textContent = data.avgLatency ? `${data.avgLatency}ms` : '--';
+
+             } catch (error) {
+                 console.error("Failed to fetch performance data:", error);
+                 tpsElement.textContent = 'Error';
+                 intervalElement.textContent = 'Error';
+                 latencyElement.textContent = 'Error';
+                 feedbackElement.textContent = `性能数据加载失败: ${error.message}`;
+                 feedbackElement.classList.add('text-red-600');
+             }
+         }
+
+
+        // --- Rendering Functions ---
+
+        // Render Node Status
+        function renderNodeStatus(nodeStatusData) {
+            const container = document.getElementById('node-status-container');
+            container.innerHTML = ''; // Clear previous content
+
+            if (!nodeStatusData || nodeStatusData.length === 0) {
+                showEmpty(container, "无节点信息");
+                return;
+            }
+
+            nodeStatusData.forEach(node => {
+                const nodeElement = document.createElement('div');
+                // Added shadow for better separation
+                nodeElement.classList.add('bg-white', 'p-4', 'border', 'border-gray-200', 'rounded-lg', 'shadow-md', 'relative', 'transition-all', 'duration-300');
+
+                let roleColor, roleTextColor;
+                switch (node.role) {
+                    case '领导者': roleColor = 'bg-green-600'; roleTextColor = 'text-white'; break;
+                    case '跟随者': roleColor = 'bg-blue-600'; roleTextColor = 'text-white'; break;
+                    case '候选者': roleColor = 'bg-yellow-500'; roleTextColor = 'text-black'; break;
+                    default: roleColor = 'bg-gray-500'; roleTextColor = 'text-white';
+                }
+
+                let statusColor, statusTextColor, statusIcon;
+                switch (node.status) {
+                    case '活跃': statusColor = 'bg-green-100'; statusTextColor = 'text-green-700'; statusIcon = 'fa-check-circle'; break;
+                    case '离线': statusColor = 'bg-red-100'; statusTextColor = 'text-red-700'; statusIcon = 'fa-times-circle'; break;
+                    default: statusColor = 'bg-gray-100'; statusTextColor = 'text-gray-700'; statusIcon = 'fa-question-circle';
+                }
+
+                nodeElement.innerHTML = `
+                    <span class="absolute top-2 right-2 px-2 py-1 text-xs font-bold rounded ${roleColor} ${roleTextColor}">${node.role}</span>
+                    <h3 class="text-lg font-semibold mb-2 pr-16">${node.name || `Node ${node.id}`}</h3>
+                    <p class="text-sm text-gray-600 mb-1"><i class="fa-solid fa-layer-group fa-fw w-4 text-gray-400 mr-1"></i>任期: ${node.term ?? 'N/A'}</p>
+                    <p class="text-sm text-gray-600 mb-1"><i class="fa-solid fa-list-ol fa-fw w-4 text-gray-400 mr-1"></i>日志索引: ${node.logIndex ?? 'N/A'}</p>
+                    <p class="text-sm text-gray-600 mb-2"><i class="fa-solid fa-heart-pulse fa-fw w-4 text-gray-400 mr-1"></i>最后心跳: ${node.lastHeartbeat ?? 'N/A'}</p>
+                    <p class="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColor} ${statusTextColor}">
+                        <i class="fa-solid ${statusIcon} mr-1"></i>
+                        ${node.status ?? '未知'}
+                    </p>
+                `;
+                container.appendChild(nodeElement);
+            });
+        }
+
+        // Render Log Data
+        function renderLogData(logData) {
+            const logTimeline = document.getElementById('system-log-timeline');
+            const shouldScroll = logTimeline.scrollTop + logTimeline.clientHeight >= logTimeline.scrollHeight - 20; // Check if near bottom before adding new logs
+            logTimeline.innerHTML = ''; // Clear previous content
+
+            if (!logData || logData.length === 0) {
+                showEmpty(logTimeline, "暂无日志");
+                return;
+            }
+
+            logData.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // Ensure logs are sorted descending
+
+            logData.forEach(log => {
+                const logEntry = document.createElement('div');
+                logEntry.classList.add('log-entry'); // Using existing style
+
+                let logLevelClass;
+                switch (log.level?.toUpperCase()) { // Make case-insensitive
+                    case 'INFO': logLevelClass = 'log-level-info'; break;
+                    case 'SUCCESS': logLevelClass = 'log-level-success'; break; // Added success
+                    case 'WARNING': logLevelClass = 'log-level-warning'; break;
+                    case 'ERROR': logLevelClass = 'log-level-error'; break;
+                    default: logLevelClass = 'bg-gray-200 text-gray-800'; // Default style
+                }
+
+                logEntry.innerHTML = `
+                    <p class="log-message text-sm">${log.message || 'No message content'}</p>
+                    <div class="flex justify-between items-center mb-1 border-b pb-1">
+                        <span class="log-timestamp text-xs">${formatTimestamp(log.timestamp)}</span>
+                        <span class="log-level ${logLevelClass} static text-xs font-semibold px-1.5 py-0.5 rounded">${log.level || 'LOG'}</span>
+                    </div>
+                    `;
+                    // Removed the <hr> as the border-b on the top div provides separation
+                logTimeline.appendChild(logEntry);
+            });
+
+            // Auto-scroll to bottom if user was already near the bottom
+            if (shouldScroll) {
+                logTimeline.scrollTop = logTimeline.scrollHeight;
+            }
+        }
+
+        // Render Block Data
+        function renderBlockData(blockData) {
+            const blockTableBody = document.getElementById('block-list-table');
+            blockTableBody.innerHTML = ''; // Clear previous content
+
+            if (!blockData || blockData.length === 0) {
+                 blockTableBody.innerHTML = `<tr><td colspan="5"><p class="placeholder-text">暂无区块信息</p></td></tr>`;
+                return;
+            }
+
+             blockData.sort((a, b) => b.height - a.height); // Ensure sorted by height descending
+
+             blockData.forEach(block => {
+                const row = blockTableBody.insertRow();
+                row.classList.add('hover:bg-gray-50');
+
+                row.innerHTML = `
+                    <td class="border border-gray-300 p-2 font-mono">${block.height ?? 'N/A'}</td>
+                    <td class="border border-gray-300 p-2 text-xs">${formatTimestamp(block.timestamp)}</td>
+                    <td class="border border-gray-300 p-2 font-mono" title="${block.hash || ''}">${abbreviateHash(block.hash)}</td>
+                    <td class="border border-gray-300 p-2 font-mono" title="${block.previousHash || ''}">${abbreviateHash(block.previousHash)}</td>
+                    <td class="border border-gray-300 p-2 text-center">${block.transactionCount ?? 'N/A'}</td>
+                `;
+                // Add click listeners for details if needed
+                // row.onclick = () => showBlockDetails(block.hash);
+            });
+        }
+
+        // Render Transaction Pool
+        function renderTransactionPool(poolData) {
+            const poolList = document.getElementById('transaction-pool-list');
+             poolList.innerHTML = ''; // Clear previous content
+
+             if (!poolData || poolData.length === 0) {
+                 showEmpty(poolList, "交易池为空");
+                 return;
+             }
+
+            poolData.forEach(tx => {
+                const listItem = document.createElement('li');
+                listItem.classList.add('text-sm', 'mb-2', 'pb-2', 'border-b', 'border-gray-200', 'last:border-b-0', 'font-mono');
+                listItem.innerHTML = `
+                    <span class="block text-xs text-gray-500 truncate" title="${tx.id}">ID: ${abbreviateHash(tx.id, 8, 6)}</span>
+                    <span class="block">From: ${tx.sender}</span>
+                    <span class="block">To: ${tx.receiver}</span>
+                    <span class="block">Amount: ${tx.amount}</span>
+                `;
+                // Add click listeners for details if needed
+                // listItem.onclick = () => showTransactionDetails(tx.id);
+                poolList.appendChild(listItem);
+            });
+        }
+
+
+        // --- Event Handlers ---
+
+        // Navigation Section Switching
+        function showSection(id, btn) {
+            document.querySelectorAll('main section').forEach(section => {
+                section.classList.add('hidden');
+            });
+            document.querySelectorAll('header nav button').forEach(button => {
+                button.classList.remove('active-nav-btn', 'bg-blue-700'); // Remove active style
+                 button.classList.add('hover:bg-gray-700');
+            });
+
+            const sectionToShow = document.getElementById(id);
+            if (sectionToShow) {
+                 sectionToShow.classList.remove('hidden');
+            }
+            if (btn) {
+                 btn.classList.add('active-nav-btn'); // Add active style to clicked button
+                 btn.classList.remove('hover:bg-gray-700');
+            }
+
+            // Trigger data refresh for the newly shown section
+            switch(id) {
+                case 'dashboard':
+                    fetchNodeStatus();
+                    fetchLogData();
+                    break;
+                case 'blockchain-explorer':
+                    fetchBlockData();
+                    break;
+                case 'transaction':
+                    fetchTransactionPool();
+                    break;
+                 case 'system-detection':
+                    fetchPerformanceData();
+                    break;
+            }
+        }
+
+        // 交易表单提交处理:
+        // 获取交易表单元素。
+        const transactionForm = document.getElementById('transaction-form');
+        // 获取用于显示反馈信息的元素。
+        const txFeedback = document.getElementById('tx-feedback');
+        // 获取提交按钮。
+        const submitTxBtn = document.getElementById('submit-tx-btn');
+        // 为表单的 submit 事件添加一个监听器。
+        // event.preventDefault(): 阻止表单的默认提交行为（即页面刷新）。
+        // 获取用户输入的发送者、接收者和金额。
+        // 进行基本的前端验证（检查字段是否为空，金额是否大于0）。
+        // 模拟向后端API发送POST请求来提交交易。
+        // 根据模拟的响应结果，在 tx-feedback 中显示成功或失败的消息。
+        // 如果成功，重置表单并调用 WorkspaceTransactionPool() 刷新交易池列表。
+        // finally 块确保按钮在操作完成后恢复可用状态。
+        // ========== 开始：用这个新版本的函数替换旧的 transactionForm 事件监听器 ==========
+        transactionForm.addEventListener('submit', async (event) => {
+            event.preventDefault(); 
+            const feedbackEl = document.getElementById('tx-feedback');
+            const submitBtn = document.getElementById('submit-tx-btn');
+            feedbackEl.textContent = '';
+            feedbackEl.classList.remove('text-red-600', 'text-green-600');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i> 处理中...';
+
+            // 从新的表单元素获取数据
+            const txType = document.getElementById('tx-type').value;
+            const senderPublicKey = document.getElementById('tx-sender-pk').value.trim();
+            const payloadString = document.getElementById('tx-payload').value.trim();
+
+            // 前端验证
+            if (!txType || !senderPublicKey || !payloadString) {
+                feedbackEl.textContent = '错误：所有字段均为必填项。';
+                feedbackEl.classList.add('text-red-600');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw"></i> 提交交易';
+                return;
+            }
+
+            let payload;
+            try {
+                payload = JSON.parse(payloadString);
+            } catch (e) {
+                feedbackEl.textContent = '错误：交易内容必须是有效的JSON格式。';
+                feedbackEl.classList.add('text-red-600');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw"></i> 提交交易';
+                return;
+            }
+            
+            const requestBody = {
+                type: txType,
+                senderPublicKey: senderPublicKey,
+                payload: payload
+            };
+
+            try {
+                // 模拟API调用
+                console.log("Submitting transaction:", requestBody);
+                const response = await new Promise(resolve => setTimeout(() => {
+                    if (Math.random() > 0.1) { // 90% 成功率
+                        resolve({
+                            ok: true,
+                            json: async () => ({ transactionHash: `0xSIM_${Math.random().toString(16).substring(2, 14)}` })
+                        });
+                    } else {
+                        resolve({ ok: false, status: 500, json: async () => ({ message: "Simulated server error: Invalid payload for selected type" }) });
+                    }
+                }, 1000));
+
+
+                if (!response.ok) {
+                    let errorMsg = `HTTP error! status: ${response.status}`;
+                    try { 
+                        const errorData = await response.json();
+                        errorMsg = errorData.message || errorMsg;
+                    } catch (e) { /* 忽略 */ }
+                    throw new Error(errorMsg);
+                }
+
+                const result = await response.json();
+                feedbackEl.textContent = `交易提交成功! 哈希: ${abbreviateHash(result.transactionHash)}`;
+                feedbackEl.classList.add('text-green-600');
+                document.getElementById('transaction-form').reset(); // 成功后清空表单
+                fetchTransactionPool(); // 刷新交易池列表
+
+            } catch (error) {
+                console.error("Transaction submission failed:", error);
+                feedbackEl.textContent = `交易失败: ${error.message}`;
+                feedbackEl.classList.add('text-red-600');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw"></i> 提交交易';
+            }
+        });
+        // ========== 结束：用这个新版本的函数替换旧的 transactionForm 事件监听器 ==========
+
+        // 系统控制按钮处理:
+        // 获取用于显示控制操作反馈的元素。
+        const controlFeedback = document.getElementById('control-feedback');
+
+        // 一个通用的异步函数，用于处理所有控制按钮的点击事件。
+        async function handleControlButtonClick(action, buttonElement) {
+            controlFeedback.textContent = `正在执行: ${action}...`;
+            controlFeedback.classList.remove('text-red-600', 'text-green-600');
+            buttonElement.disabled = true;
+            const originalText = buttonElement.innerHTML;
+            buttonElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i>';
+
+
+            try {
+                 // Real fetch:
+                 /*
+                 const response = await fetch(`${API_BASE_URL}/system/control`, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ action: action, targetNodeId: null }) // Add target node if needed
+                 });
+                 */
+                 // Simulation:
+                 const response = await new Promise(resolve => setTimeout(() => {
+                      if (Math.random() > 0.15) { // 85% success
+                          resolve({ ok: true, json: async () => ({ message: `${action} 操作成功模拟` }) });
+                      } else {
+                           resolve({ ok: false, status: 500, json: async () => ({ message: `模拟执行 ${action} 失败` }) });
+                      }
+                 }, 1500));
+
+                 if (!response.ok) {
+                     const errorData = await response.json();
+                     throw new Error(errorData.message || `操作失败 (status ${response.status})`);
+                 }
+                 const result = await response.json();
+                 controlFeedback.textContent = `成功: ${result.message}`;
+                 controlFeedback.classList.add('text-green-600');
+
+            } catch(error) {
+                 console.error(`Control action '${action}' failed:`, error);
+                 controlFeedback.textContent = `失败: ${error.message}`;
+                 controlFeedback.classList.add('text-red-600');
+            } finally {
+                 buttonElement.disabled = false;
+                 buttonElement.innerHTML = originalText;
+            }
+        }
+
+        document.getElementById('start-node-btn').addEventListener('click', (e) => handleControlButtonClick('start_node', e.target));
+        document.getElementById('stop-node-btn').addEventListener('click', (e) => handleControlButtonClick('stop_node', e.target));
+        document.getElementById('crash-node-btn').addEventListener('click', (e) => handleControlButtonClick('crash_node', e.target));
+        document.getElementById('delay-network-btn').addEventListener('click', (e) => handleControlButtonClick('delay_network', e.target));
+
+
+        // --- Initial Load & Periodic Fetching ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Show dashboard by default
+            showSection('dashboard', document.getElementById('dashboard-btn'));
+
+            // Set up polling intervals
+            setInterval(fetchNodeStatus, POLLING_INTERVAL_STATUS);
+            setInterval(fetchLogData, POLLING_INTERVAL_LOGS);
+            setInterval(fetchBlockData, POLLING_INTERVAL_BLOCKS);
+            setInterval(fetchTransactionPool, POLLING_INTERVAL_POOL);
+            setInterval(fetchPerformanceData, POLLING_INTERVAL_PERF);
+        });
+
+        const mainAppContentElements = document.querySelectorAll('.main-application-content'); // 现在只选择主内容
+        const mainAppNavElements = document.querySelectorAll('.main-application-nav');       // 单独选择导航相关元素
+        const logoutButton = document.getElementById('logout-btn');
+        function handleLogout() {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('username');
+            localStorage.removeItem('userId');
+            window.location.href = 'login.html';
+        }
+
+        function checkAuthAndSetupUI() {
+            const token = localStorage.getItem('authToken');
+            const username = localStorage.getItem('username');
+
+            if (!token) {
+                window.location.href = 'login.html';
+                return false;
+            }
+
+            // 如果有 token，显示主应用界面和认证相关UI
+            mainAppContentElements.forEach(el => {
+                el.style.display = 'block'; // 或者 'block'，取决于你的 <main> 外部是否是 flex 容器以及你期望的布局
+                                         // 如果 <main> 本身是 flex 容器（因为它有 flex-grow），那么 'block' 或 'flex' 通常都可以
+            });
+            mainAppNavElements.forEach(el => {
+                el.style.display = 'flex'; // 对于 <nav> 和 <div id="auth-controls">，'flex' 通常是合适的
+            });
+            if (logoutButton) {
+                logoutButton.addEventListener('click', handleLogout);
+            }
+            return true;
+        }
+        const isAuthenticated = checkAuthAndSetupUI();
+        if (isAuthenticated) {
+            // --- 你所有原有的 index.html 的 JavaScript 逻辑（配置、工具函数、API Fetch、渲染、事件处理等）---
+            // --- 都放在这个 if (isAuthenticated) 条件块内 ---
+
+            // 例如：
+            const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'; // 确保指向后端受保护API
+            // ... (你所有的其他 const 定义和函数定义)
+
+            // --- Event Handlers ---
+            function showSection(id, btn) {
+                // 确保这里的选择器正确
+                document.querySelectorAll('main.main-application-content section').forEach(section => { // 修正选择器
+                    section.classList.add('hidden');
+                });
+                // 更新导航按钮的选择器，确保它指向 #main-navigation-items 内的按钮
+                document.querySelectorAll('#main-navigation-items button').forEach(button => {
+                    button.classList.remove('active-nav-btn', 'bg-blue-700');
+                    button.classList.add('hover:bg-gray-700');
+                });
+                const sectionToShow = document.getElementById(id);
+                if (sectionToShow) { sectionToShow.classList.remove('hidden'); }
+                if (btn) {
+                    btn.classList.add('active-nav-btn');
+                    btn.classList.remove('hover:bg-gray-700');
+                }
+                // ... (switch case for data fetching) ...
+                switch(id) {
+                    case 'dashboard': fetchNodeStatus(); fetchLogData(); break;
+                    // ... 其他 cases
+                }
+            }
+            // ... (你所有的其他函数和 DOMContentLoaded 里的初始化逻辑) ...
+            // 确保 fetchWithAuth 和所有 API 调用函数都正确定义并使用
+            async function fetchWithAuth(url, options = {}) { /* ... (之前提供的实现) ... */ 
+                const token = localStorage.getItem('authToken');
+                if (!token) {
+                    console.warn("fetchWithAuth: No token found, logging out.");
+                    handleLogout();
+                    throw new Error("用户未认证，请求中止。");
+                }
+                const defaultHeaders = {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                };
+                const config = { /* ... */ };
+                const response = await fetch(url, config);
+                if (response.status === 401) { /* ... */ throw { message: "认证失败", status: 401 };}
+                if (!response.ok) { /* ... */ throw new Error("HTTP Error"); }
+                return response.json();
+            }
+
+            const controlTargetNodeSelect = document.getElementById('control-target-node');
+            const controlFeedback = document.getElementById('control-feedback');
+
+            // 新增：此函数用于填充节点控制的下拉选择框
+            function populateControlNodeDropdown(nodes) {
+                if (!controlTargetNodeSelect) return;
+                
+                const selectedValue = controlTargetNodeSelect.value; // 保存当前选中的值
+                controlTargetNodeSelect.innerHTML = '<option value="">-- 选择目标节点 --</option>';
+                
+                nodes.forEach(node => {
+                    const option = document.createElement('option');
+                    option.value = node.id;
+                    option.textContent = node.name || `Node ${node.id}`;
+                    controlTargetNodeSelect.appendChild(option);
+                });
+                
+                controlTargetNodeSelect.value = selectedValue; // 尝试恢复之前的选中项
+            }
+
+            // 修改：更新 fetchNodeStatus 函数，在获取到数据后调用 populateControlNodeDropdown
+            async function fetchNodeStatus() {
+                const container = document.getElementById('node-status-container');
+                try {
+                    // ... (你已有的 fetch 逻辑保持不变)
+                    // Simulation:
+                    const response = await new Promise(resolve => setTimeout(() => resolve({
+                        ok: true,
+                        json: async () => [
+                            { id:1, name: 'Node1', role: '领导者', term: Math.floor(2 + Math.random()*2), logIndex: Math.floor(600 + Math.random()*100), lastHeartbeat: new Date().toLocaleTimeString(), status: '活跃' },
+                            { id:2, name: 'Node2', role: '跟随者', term: Math.floor(2 + Math.random()*2), logIndex: Math.floor(600 + Math.random()*100), lastHeartbeat: new Date(Date.now() - 1000).toLocaleTimeString(), status: (Math.random() > 0.8 ? '离线' : '活跃') },
+                            { id:3, name: 'Node3', role: '跟随者', term: Math.floor(2 + Math.random()*2), logIndex: Math.floor(600 + Math.random()*100), lastHeartbeat: new Date(Date.now() - 2000).toLocaleTimeString(), status: '活跃' },
+                        ]
+                    }), 500));
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    renderNodeStatus(data); // 原有渲染逻辑
+                    
+                    // --- 新增调用 ---
+                    populateControlNodeDropdown(data); // 填充控制面板的下拉框
+                    // --- 结束新增调用 ---
+
+                } catch (error) {
+                    showError(container, error);
+                }
+            }
+
+            // 修改：更新 fetchPerformanceData 函数，增加对选举频率的处理
+            async function fetchPerformanceData() {
+                const tpsElement = document.getElementById('tps-statistic');
+                const intervalElement = document.getElementById('block-generation-interval');
+                const latencyElement = document.getElementById('node-message-latency');
+                const electionRateElement = document.getElementById('leader-election-rate'); // 新增
+                const feedbackElement = document.getElementById('perf-feedback');
+                feedbackElement.textContent = '';
+
+                try {
+                    // ... (你已有的 fetch 逻辑保持不变)
+                    // Simulation:
+                    const response = await new Promise(resolve => setTimeout(() => resolve({
+                        ok: true,
+                        json: async () => ({
+                            tps: (Math.random() * 25 + 5).toFixed(1),
+                            blockInterval: (Math.random() * 5 + 8).toFixed(1),
+                            avgLatency: (Math.random() * 60 + 20).toFixed(0),
+                            electionRate: (Math.random() * 2).toFixed(1) // 新增模拟数据
+                        })
+                    }), 400));
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    tpsElement.textContent = data.tps || '--';
+                    intervalElement.textContent = data.blockInterval ? `${data.blockInterval}s` : '--';
+                    latencyElement.textContent = data.avgLatency ? `${data.avgLatency}ms` : '--';
+
+                    // --- 新增对新元素的支持 ---
+                    if (electionRateElement) {
+                        electionRateElement.textContent = data.electionRate ? `${data.electionRate} / hr` : '--';
+                    }
+                    // --- 结束新增 ---
+                    
+                    feedbackElement.textContent = `最后更新: ${formatTimestamp(new Date())}`;
+
+                } catch (error) {
+                    console.error("Failed to fetch performance data:", error);
+                    [tpsElement, intervalElement, latencyElement, electionRateElement].forEach(el => { if(el) el.textContent = 'Error'; });
+                    feedbackElement.textContent = `性能数据加载失败: ${error.message}`;
+                    feedbackElement.classList.add('text-red-600');
+                }
+            }
+
+            // 修改：用这个新版本的 handleControlButtonClick 函数替换掉旧的
+            async function handleControlButtonClick(action, buttonElement) {
+                const targetNodeId = controlTargetNodeSelect.value;
+                const feedbackEl = controlFeedback;
+
+                // 验证是否选择了目标节点
+                if (!targetNodeId) {
+                    feedbackEl.textContent = `请先从下拉框中选择一个目标节点再执行操作。`;
+                    feedbackEl.className = 'text-sm mt-4 p-3 rounded-md flex items-center text-red-700 bg-red-100';
+                    return;
+                }
+
+                feedbackEl.textContent = `正在向节点 ${targetNodeId} 发送 '${action}' 指令...`;
+                feedbackEl.className = 'text-sm mt-4 p-3 rounded-md bg-gray-100 min-h-[44px] flex items-center text-gray-700'; // 重置样式
+                buttonElement.disabled = true;
+                const originalHTML = buttonElement.innerHTML;
+                buttonElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i>';
+
+                let requestBody = { action: action, targetNodeId: targetNodeId };
+                if (action === 'delay_network') {
+                    requestBody.delay_ms = parseInt(document.getElementById('control-network-delay-ms').value, 10) || 0;
+                }
+
+                try {
+                    // ... (你已有的 fetch 逻辑保持不变)
+                    // Simulation:
+                    const response = await new Promise(resolve => setTimeout(() => {
+                        if (Math.random() > 0.15) {
+                            resolve({ ok: true, json: async () => ({ message: `'${action}' 操作已成功模拟于节点 ${targetNodeId}` }) });
+                        } else {
+                            resolve({ ok: false, status: 500, json: async () => ({ message: `模拟执行 '${action}' 失败` }) });
+                        }
+                    }, 1500));
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || `操作失败 (status ${response.status})`);
+                    }
+                    const result = await response.json();
+                    feedbackEl.textContent = `成功: ${result.message}`;
+                    feedbackEl.classList.add('text-green-700', 'bg-green-100');
+                    
+                    // 立即刷新节点状态以看到变化
+                    fetchNodeStatus();
+
+                } catch(error) {
+                    console.error(`Control action '${action}' failed:`, error);
+                    feedbackEl.textContent = `失败: ${error.message}`;
+                    feedbackEl.classList.add('text-red-700', 'bg-red-100');
+                } finally {
+                    buttonElement.disabled = false;
+                    buttonElement.innerHTML = originalHTML;
+                }
+            }
+            // ... etc.
+            
+            
+            // ========== 开始：将这些新增和修改的JS函数粘贴到 <script> 标签内 ==========
+
+            // 新增：在 <script> 的全局变量区域添加这两个DOM元素获取
+            const blockListView = document.getElementById('block-list-view');
+            const blockDetailsView = document.getElementById('block-details-view');
+
+            // 修改：更新 renderBlockData 函数，使其生成的每一行都可以点击
+            function renderBlockData(blockData) {
+                const blockTableBody = document.getElementById('block-list-table');
+                blockTableBody.innerHTML = ''; 
+
+                if (!blockData || blockData.length === 0) {
+                    blockTableBody.innerHTML = `<tr><td colspan="5"><p class="placeholder-text">暂无区块信息</p></td></tr>`;
+                    return;
+                }
+
+                blockData.sort((a, b) => b.height - a.height);
+
+                blockData.forEach(block => {
+                    const row = blockTableBody.insertRow();
+                    // --- 修改部分：增加 cursor-pointer 和 onclick 事件 ---
+                    row.className = 'hover:bg-gray-50 cursor-pointer transition-colors';
+                    row.onclick = () => showBlockDetails(block.height); // 使用区块高度作为唯一标识符
+                    // --- 结束修改 ---
+
+                    row.innerHTML = `
+                        <td class="p-3 font-mono text-blue-600">${block.height ?? 'N/A'}</td>
+                        <td class="p-3 text-xs">${formatTimestamp(block.timestamp)}</td>
+                        <td class="p-3 font-mono" title="${block.hash || ''}">${abbreviateHash(block.hash)}</td>
+                        <td class="p-3 font-mono" title="${block.previousHash || ''}">${abbreviateHash(block.previousHash)}</td>
+                        <td class="p-3 text-center">${block.transactionCount ?? 'N/A'}</td>
+                    `;
+                });
+            }
+
+            // 新增：此函数用于渲染区块详情页面的数据
+            function renderBlockDetails(block) {
+                // 填充标题和主要信息
+                document.getElementById('detail-block-height-title').textContent = block.height;
+                document.getElementById('detail-block-height').textContent = block.height;
+                document.getElementById('detail-block-timestamp').textContent = formatTimestamp(block.timestamp);
+                document.getElementById('detail-block-hash').textContent = block.hash;
+                document.getElementById('detail-block-prev-hash').textContent = block.previousHash;
+                document.getElementById('detail-block-tx-count').textContent = block.transactionCount;
+                // 以下为新增加的字段，如果你的模拟数据或API返回这些信息，它们将被填充
+                document.getElementById('detail-block-term').textContent = block.term || 'N/A';
+                document.getElementById('detail-block-proposer').textContent = block.proposerNodeId || 'N/A';
+                document.getElementById('detail-block-size').textContent = block.size ? `${block.size} bytes` : 'N/A';
+
+                // 填充区块内交易列表
+                const txListContainer = document.getElementById('detail-transactions-list');
+                txListContainer.innerHTML = '';
+                if (block.transactions && block.transactions.length > 0) {
+                    const ul = document.createElement('ul');
+                    ul.className = 'space-y-2';
+                    block.transactions.forEach(tx => {
+                        const li = document.createElement('li');
+                        li.className = 'p-2 border rounded bg-gray-50 hover:bg-gray-100 text-xs font-mono';
+                        li.innerHTML = `<span class="text-blue-600">${tx.id}</span>: from ${tx.sender} to ${tx.receiver}, amount ${tx.amount}`;
+                        ul.appendChild(li);
+                    });
+                    txListContainer.appendChild(ul);
+                } else {
+                    txListContainer.innerHTML = `<p class="text-sm text-gray-500">此区块不包含交易</p>`;
+                }
+            }
+
+            // 新增：此函数负责显示详情页并触发数据获取
+            async function showBlockDetails(blockHeight) {
+                blockListView.classList.add('hidden');
+                blockDetailsView.classList.remove('hidden');
+                // 显示加载动画
+                document.getElementById('detail-block-height-title').textContent = '加载中...';
+                document.getElementById('detail-transactions-list').innerHTML = '<div class="spinner"></div>';
+                
+                try {
+                    // --- 模拟API调用：根据区块高度获取详情 ---
+                    const lastHash = `0xSIM_DETAIL_${Math.random().toString(16).substring(2, 22)}`;
+                    const response = await new Promise(resolve => setTimeout(() => resolve({
+                        ok: true,
+                        json: async () => {
+                            const txCount = blockHeight % 5 === 0 ? 0 : Math.floor(Math.random() * 5) + 1; // 让一些区块没有交易
+                            return {
+                                height: blockHeight,
+                                timestamp: new Date(Date.now() - (100000 - blockHeight) * 10000).toISOString(),
+                                hash: `0x${Math.random().toString(16).substring(2, 10)}${Math.random().toString(16).substring(2, 10)}`,
+                                previousHash: lastHash,
+                                transactionCount: txCount,
+                                term: Math.floor(blockHeight / 10),
+                                proposerNodeId: (blockHeight % 3) + 1,
+                                size: Math.floor(Math.random() * 1000) + 500,
+                                transactions: Array.from({length: txCount}, (_, i) => ({
+                                    id: `tx_${Math.random().toString(36).substring(2, 10)}`,
+                                    sender: `Sender${i}`,
+                                    receiver: `Receiver${i}`,
+                                    amount: (Math.random() * 10).toFixed(2)
+                                }))
+                            };
+                        }
+                    }), 600)); // 模拟网络延迟
+
+                    if (!response.ok) {
+                        throw new Error(`无法获取区块 #${blockHeight} 的信息`);
+                    }
+                    const blockDetails = await response.json();
+                    renderBlockDetails(blockDetails);
+                    
+                } catch (error) {
+                    document.getElementById('detail-transactions-list').innerHTML = `<p class="placeholder-text text-red-600">${error.message}</p>`;
+                    console.error("Failed to fetch block details:", error);
+                }
+            }
+
+            // 新增：“返回列表”按钮的事件监听
+            document.getElementById('back-to-list-btn').addEventListener('click', () => {
+                blockDetailsView.classList.add('hidden');
+                blockListView.classList.remove('hidden');
+            });
+
+            // ========== 结束：将这些新增和修改的JS函数粘贴到 <script> 标签内 ==========
+            // ========== 开始：将这些新增和修改的JS函数粘贴到 <script> 标签内 ==========
+
+            // 新增：此函数根据交易类型的选择，动态显示/隐藏对应的输入字段
+            function updateTransactionFields() {
+                const txType = document.getElementById('tx-type').value;
+                const transferFields = document.getElementById('transfer-fields');
+                const dataStorageFields = document.getElementById('data-storage-fields');
+                const contractCallFields = document.getElementById('contract-call-fields');
+
+                // 先隐藏所有动态字段
+                transferFields.classList.add('hidden');
+                dataStorageFields.classList.add('hidden');
+                contractCallFields.classList.add('hidden');
+
+                // 根据选择显示对应的字段
+                if (txType === 'transfer') {
+                    transferFields.classList.remove('hidden');
+                } else if (txType === 'data_storage') {
+                    dataStorageFields.classList.remove('hidden');
+                } else if (txType === 'contract_call') {
+                    contractCallFields.classList.remove('hidden');
+                }
+            }
+
+            // 新增：为交易类型下拉框添加事件监听
+            document.getElementById('tx-type').addEventListener('change', updateTransactionFields);
+
+
+            // 修改：用这个新版本的函数替换旧的 transactionForm 事件监听器
+            transactionForm.addEventListener('submit', async (event) => {
+                event.preventDefault(); 
+                const feedbackEl = document.getElementById('tx-feedback');
+                const submitBtn = document.getElementById('submit-tx-btn');
+                feedbackEl.textContent = '';
+                feedbackEl.classList.remove('text-red-600', 'text-green-600');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i> 处理中...';
+
+                const txType = document.getElementById('tx-type').value;
+                const senderPublicKey = document.getElementById('tx-sender-pk').value.trim();
+                let payload = {};
+                let formIsValid = true;
+
+                // 根据交易类型构建 payload
+                try {
+                    if (txType === 'transfer') {
+                        const receiver = document.getElementById('transfer-receiver').value.trim();
+                        const amount = parseFloat(document.getElementById('transfer-amount').value);
+                        if (!receiver || isNaN(amount) || amount <= 0) {
+                            formIsValid = false;
+                            feedbackEl.textContent = '错误：请填写有效的接收者地址和正数金额。';
+                        }
+                        payload = { to: receiver, amount: amount };
+                    } else if (txType === 'data_storage') {
+                        const key = document.getElementById('storage-key').value.trim();
+                        const value = document.getElementById('storage-value').value; // value可以是任意字符串
+                        if (!key) {
+                            formIsValid = false;
+                            feedbackEl.textContent = '错误：数据键 (Key) 不能为空。';
+                        }
+                        payload = { key: key, value: value };
+                    } else if (txType === 'contract_call') {
+                        const contractAddress = document.getElementById('contract-address').value.trim();
+                        const paramsString = document.getElementById('contract-params').value.trim();
+                        if (!contractAddress) {
+                            formIsValid = false;
+                            feedbackEl.textContent = '错误：合约地址不能为空。';
+                        }
+                        try {
+                            const params = paramsString ? JSON.parse(paramsString) : {};
+                            payload = { contractAddress: contractAddress, params: params };
+                        } catch(e) {
+                            formIsValid = false;
+                            feedbackEl.textContent = '错误：调用参数必须是有效的JSON格式。';
+                        }
+                    }
+                } catch (e) {
+                    formIsValid = false;
+                    feedbackEl.textContent = '错误：表单数据处理异常。';
+                }
+
+                if (!senderPublicKey) {
+                    formIsValid = false;
+                    feedbackEl.textContent = '错误：发送者公钥不能为空。';
+                }
+                
+                if (!formIsValid) {
+                    feedbackEl.classList.add('text-red-600');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw"></i> 提交交易';
+                    return;
+                }
+                
+                const requestBody = {
+                    type: txType,
+                    senderPublicKey: senderPublicKey,
+                    payload: payload
+                };
+
+                try {
+                    // ... (原有的API请求和成功/失败处理逻辑保持不变)
+                    console.log("Submitting transaction:", requestBody);
+                    const response = await new Promise(resolve => setTimeout(() => {
+                        if (Math.random() > 0.1) {
+                            resolve({ ok: true, json: async () => ({ transactionHash: `0xSIM_${Math.random().toString(16).substring(2, 14)}` }) });
+                        } else {
+                            resolve({ ok: false, status: 500, json: async () => ({ message: "Simulated server error" }) });
+                        }
+                    }, 1000));
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.message || '模拟的服务器错误');
+                    }
+
+                    const result = await response.json();
+                    feedbackEl.textContent = `交易提交成功! 哈希: ${abbreviateHash(result.transactionHash)}`;
+                    feedbackEl.classList.add('text-green-600');
+                    fetchTransactionPool();
+                } catch (error) {
+                    feedbackEl.textContent = `交易失败: ${error.message}`;
+                    feedbackEl.classList.add('text-red-600');
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw"></i> 提交交易';
+                }
+            });
+
+            // 新增：页面加载时，调用一次函数以确保显示正确的初始字段
+            document.addEventListener('DOMContentLoaded', () => {
+                if (isAuthenticated) { // 双重检查，虽然此时 isAuthenticated 应该为 true
+                    const dashboardButton = document.getElementById('dashboard-btn');
+                    if (dashboardButton) { // 确保按钮存在再调用 showSection
+                        showSection('dashboard', dashboardButton);
+                         // 在你已有的 DOMContentLoaded 监听器中，添加下面这一行
+                        updateTransactionFields(); 
+                    }
+                    // setInterval(fetchNodeStatus, POLLING_INTERVAL_STATUS);
+                    // ... 其他 setIntervals
+                }
+                // ...
+            });
+
+            // ========== 结束：将这些新增和修改的JS函数粘贴到 <script> 标签内 ==========
+        } // --- END: if (isAuthenticated) ---
+    </script>
+</body>
+</html>

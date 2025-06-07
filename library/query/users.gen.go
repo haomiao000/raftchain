@@ -17,7 +17,7 @@ import (
 
 	"gorm.io/plugin/dbresolver"
 
-	"main/library/model"
+	"github.com/haomiao000/raftchain/library/model"
 )
 
 func newUser(db *gorm.DB, opts ...gen.DOOption) user {

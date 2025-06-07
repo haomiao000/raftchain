@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package consensus; // 包名，可以根据你的项目结构调整
+
+option go_package = "raft/"; // 生成的 Go 代码的包路径
+
+// Raft 服务定义了节点间的 RPC 调用
+service RaftService {
+  // RequestVote RPC 由 Candidate 调用，用于收集选票
+  rpc RequestVote(RequestVoteArgs) returns (RequestVoteReply) {}
+
+  // AppendEntries RPC 由 Leader 调用，用于复制日志条目和作为心跳
+  rpc AppendEntries(AppendEntriesArgs) returns (AppendEntriesReply) {}
+
+  // InstallSnapshot RPC 由 Leader 调用，用于向 Follower 发送快照分片 (如果实现快照)
+  // rpc InstallSnapshot(InstallSnapshotArgs) returns (InstallSnapshotReply) {}
+
+  // (可选) 客户端提交命令的接口，如果希望通过 gRPC 而非 HTTP 提交
+  // rpc SubmitCommand(CommandRequest) returns (CommandReply) {}
+}
+
+// LogEntry 消息类型，对应 Raft 日志中的一个条目
+message LogEntry {
+  int32 term    = 1; // 日志条目创建时的任期号 (使用 int32 通常足够，且与 gRPC 默认类型匹配)
+  int64 index   = 2; // 日志条目的索引 (使用 int64 以防日志非常长)
+  bytes command = 3; // 需要被状态机执行的命令 (例如，序列化后的交易批次或区块)
+}
+
+// RequestVoteArgs 是 RequestVote RPC 的参数消息类型
+message RequestVoteArgs {
+  int32 term          = 1; // Candidate 的任期号
+  int32 candidate_id  = 2; // Candidate 的 ID
+  int64 last_log_index = 3; // Candidate 最后日志条目的索引值
+  int32 last_log_term  = 4; // Candidate 最后日志条目的任期号
+}
+
+// RequestVoteReply 是 RequestVote RPC 的返回值消息类型
+message RequestVoteReply {
+  int32 term         = 1; // CurrentTerm, for candidate to update itself
+  bool  vote_granted = 2; // True means candidate received vote
+}
+
+// AppendEntriesArgs 是 AppendEntries RPC (包括心跳) 的参数消息类型
+message AppendEntriesArgs {
+  int32 term          = 1; // Leader's term
+  int32 leader_id     = 2; // So follower can redirect clients
+  int64 prev_log_index = 3; // Index of log entry immediately preceding new ones
+  int32 prev_log_term  = 4; // Term of prevLogIndex entry
+  repeated LogEntry entries = 5; // Log entries to store (empty for heartbeat)
+  int64 leader_commit = 6; // Leader’s commitIndex
+}
+
+// AppendEntriesReply 是 AppendEntries RPC 的返回值消息类型
+message AppendEntriesReply {
+  int32 term    = 1; // CurrentTerm, for leader to update itself
+  bool  success = 2; // True if follower contained entry matching prevLogIndex and prevLogTerm
+
+  // 可选的优化字段，用于快速定位日志冲突点
+  int32 conflict_term  = 3; // Follower中与Leader的prevLogIndex冲突的日志条目的任期号 (如果存在, 否则为0或-1)
+  int64 conflict_index = 4; // Follower中第一个任期号为ConflictTerm的日志条目的索引 (如果存在, 否则为0或-1)
+}
+
+// --- 如果实现快照，可以取消以下注释 ---
+/*
+message InstallSnapshotArgs {
+  int32 term              = 1; // Leader's term
+  int32 leader_id         = 2; // Leader's ID
+  int64 last_included_index = 3; // The snapshot replaces all entries up through this index
+  int32 last_included_term  = 4; // Term of lastIncludedIndex
+  int64 offset            = 5; // Byte offset where chunk is positioned in the snapshot file
+  bytes data              = 6; // Raw bytes of the snapshot chunk, starting at offset
+  bool  done              = 7; // True if this is the last chunk
+}
+
+message InstallSnapshotReply {
+  int32 term = 1; // CurrentTerm, for leader to update itself
+}
+*/
+
+// --- 可选：客户端提交命令的接口定义 ---
+/*
+message CommandRequest {
+  bytes command = 1; // 客户端提交的命令
+}
+
+message CommandReply {
+  bool  success    = 1; // 命令是否被 Leader 接受 (注意：这不代表命令已提交)
+  int32 leader_id  = 2; // (如果当前节点不是 Leader) 当前 Leader 的 ID，用于客户端重定向
+  string message   = 3; // 额外信息
+}
+*/

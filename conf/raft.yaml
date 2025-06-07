@@ -1,0 +1,14 @@
+# Raft 集群配置
+raft:
+  node_id: 1 # 当前节点的ID (每个节点配置不同)
+  # 本地监听的 gRPC 地址，用于接收其他 Raft 节点的请求
+  grpc_listen_address: "127.0.0.1:50051" # 例如节点1监听此地址
+  # 集群中所有节点的列表 (包括自己，但通常自己不向自己发RPC)
+  # key是节点ID, value是该节点gRPC服务的地址
+  peers:
+    1: "127.0.0.1:50051"
+    2: "127.0.0.1:50052"
+    3: "127.0.0.1:50053"
+  election_timeout_ms_min: 150 # 选举超时最小毫秒数
+  election_timeout_ms_max: 300 # 选举超时最大毫秒数
+  heartbeat_interval_ms: 50    # 心跳间隔毫秒数

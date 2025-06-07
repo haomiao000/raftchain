@@ -3,8 +3,8 @@ package main
 import (
 	"log"
 	"os"
-	"main/bootstrap"
-	"main/httpserver/router"
+	"github.com/haomiao000/raftchain/bootstrap"
+	"github.com/haomiao000/raftchain/backend/httpserver/router"
 
 	"github.com/gin-gonic/gin"
 )

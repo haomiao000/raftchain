@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"main/library/model"
-	"main/library/query"
-	"main/library/utils"
+	"github.com/haomiao000/raftchain/library/model"
+	"github.com/haomiao000/raftchain/library/query"
+	"github.com/haomiao000/raftchain/library/utils"
 
 	"gorm.io/gorm"
 )
@@ -69,6 +69,7 @@ func Login(ctx context.Context, username string, password string) (any, error) {
 		return nil, errors.New("用户名或密码错误")
 	}
 
+	// 登录成功，生成一个有效期为24小时的token
 	tokenString, err := utils.GenToken(user.ID)
 	if err != nil {
 		return nil, fmt.Errorf("生成认证令牌失败: %w", err)
@@ -79,4 +80,40 @@ func Login(ctx context.Context, username string, password string) (any, error) {
 		"user_id":  user.ID,
 		"username": user.Username,
 	}, nil
+}
+
+// ChangePassword 验证旧信息并更新为新密码
+func ChangePassword(ctx context.Context, username, email, oldPassword, newPassword string) error {
+	// 1. 获取用户信息
+	user, err := GetUserByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("用户名、邮箱或原密码错误")
+		}
+		return fmt.Errorf("查询用户失败: %w", err)
+	}
+
+	// 2. 验证邮箱是否匹配
+	if user.Email != email {
+		return errors.New("用户名、邮箱或原密码错误")
+	}
+
+	// 3. 验证原密码是否正确
+	expectedOldPasswordHash := utils.GenSha256(oldPassword)
+	if user.Password != expectedOldPasswordHash {
+		return errors.New("用户名、邮箱或原密码错误")
+	}
+
+	// 4. 更新为新密码
+	newPasswordHash := utils.GenSha256(newPassword)
+	u := query.User
+	result, err := u.WithContext(ctx).Where(u.ID.Eq(user.ID)).Update(u.Password, newPasswordHash)
+	if err != nil {
+		return fmt.Errorf("数据库更新密码失败: %w", err)
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("未找到用户或无需更新")
+	}
+
+	return nil
 }

@@ -5,9 +5,9 @@ import (
 	"log"
 	"path/filepath"
 
-	"main/library/ext"
-	"main/library/resource"
-	"main/library/query"
+	"github.com/haomiao000/raftchain/library/ext"
+	"github.com/haomiao000/raftchain/library/resource"
+	"github.com/haomiao000/raftchain/library/query"
 
 	"github.com/spf13/viper"
 	"gorm.io/driver/mysql"
@@ -66,7 +66,7 @@ func loadConfig(fileName string, configPtr interface{}) {
 	v := viper.New()
 	v.SetConfigName(fileName[:len(fileName)-len(filepath.Ext(fileName))])
 	v.SetConfigType("yaml")
-	v.AddConfigPath("./conf")
+	v.AddConfigPath("../conf")
 
 	err := v.ReadInConfig()
 	if err != nil {

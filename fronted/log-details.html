@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日志详情与筛选 - Raft 监控系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.1.2/css/all.min.css">
+    <style>
+        .main-application-content, .main-application-nav { display: none; }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            margin: 40px auto;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .placeholder-text { @apply text-gray-500 italic text-center p-6; }
+        .table-header { @apply border-b-2 border-gray-200 bg-gray-50 p-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider; }
+        .table-cell { @apply border-b border-gray-200 p-2 text-sm; }
+        .btn { @apply font-bold py-2 px-4 rounded transition duration-150 ease-in-out text-sm; }
+        .btn-primary { @apply bg-blue-600 hover:bg-blue-700 text-white; }
+        .btn-secondary { @apply bg-gray-500 hover:bg-gray-600 text-white; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex flex-col min-h-screen">
+
+    <header class="w-full bg-gray-800 text-white shadow-sm p-4 flex justify-start items-center sticky top-0 z-10">
+        <h1 class="text-lg font-bold mx-4">区块链监控系统</h1>
+        <nav id="main-navigation-items" class="main-application-nav flex justify-end flex-grow">
+             <a href="index.html" class="hover:bg-gray-700 p-2 rounded mx-2"><i class="fa-solid fa-arrow-left fa-fw"></i> 返回仪表盘</a>
+        </nav>
+        <div id="auth-controls" class="main-application-nav ml-auto flex items-center">
+            <button id="logout-btn" class="bg-red-500 hover:bg-red-700 text-white p-2 rounded mx-2 text-sm">
+                <i class="fa-solid fa-sign-out-alt fa-fw"></i> 登出
+            </button>
+        </div>
+    </header>
+
+    <main class="w-full p-4 md:p-6 flex-grow main-application-content">
+        <section id="log-details" class="space-y-6">
+            <h2 class="text-2xl font-semibold text-gray-800 border-b pb-2">系统日志高级筛选</h2>
+            
+            <div class="bg-white p-4 rounded-lg border shadow-sm">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                    <div>
+                        <label for="log-date-start" class="block text-sm font-medium text-gray-700">开始日期</label>
+                        <input type="date" id="log-date-start" name="date-start" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="log-date-end" class="block text-sm font-medium text-gray-700">结束日期</label>
+                        <input type="date" id="log-date-end" name="date-end" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="log-details-level-filter" class="block text-sm font-medium text-gray-700">日志级别</label>
+                        <select id="log-details-level-filter" class="mt-1 block w-full p-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <option value="">所有级别</option>
+                            <option value="INFO">INFO</option>
+                            <option value="SUCCESS">SUCCESS</option>
+                            <option value="WARNING">WARNING</option>
+                            <option value="ERROR">ERROR</option>
+                        </select>
+                    </div>
+                    <div class="lg:col-span-2">
+                         <label for="log-keyword-filter" class="block text-sm font-medium text-gray-700">关键词</label>
+                        <input type="text" id="log-keyword-filter" placeholder="在日志信息中搜索..." class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    </div>
+                    <div class="lg:col-span-2 flex items-center space-x-2">
+                         <button id="apply-advanced-filter-btn" class="btn btn-primary w-full"><i class="fa-solid fa-filter fa-fw mr-1"></i>筛选日志</button>
+                         <button id="clear-advanced-filter-btn" class="btn btn-secondary w-full"><i class="fa-solid fa-times fa-fw mr-1"></i>清除筛选</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow">
+                <div id="log-details-container" class="overflow-x-auto">
+                    <div class="spinner"></div>
+                </div>
+                <div id="log-details-pagination" class="flex justify-center p-4 text-sm border-t"></div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="w-full bg-gray-700 text-white text-center p-3 text-xs">
+        Raft Blockchain Monitoring System &copy; 2025
+    </footer>
+
+    <script>
+        // --- Configuration & Global State ---
+        const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'; // Mock API
+        const LOGS_PER_PAGE = 20;
+        let currentLogPage = 1;
+        let mockSystemLogs = []; // Store all mock logs for filtering
+
+        // --- DOM Elements ---
+        const logDetailsLevelFilter = document.getElementById('log-details-level-filter');
+        const logDateStart = document.getElementById('log-date-start');
+        const logDateEnd = document.getElementById('log-date-end');
+        const logKeywordFilter = document.getElementById('log-keyword-filter');
+        const applyAdvancedFilterBtn = document.getElementById('apply-advanced-filter-btn');
+        const clearAdvancedFilterBtn = document.getElementById('clear-advanced-filter-btn');
+
+        // --- Utility Functions ---
+        function formatTimestamp(isoString) {
+            if (!isoString) return 'N/A';
+            return new Date(isoString).toLocaleString('sv-SE');
+        }
+
+        // --- Mock Data Generators ---
+        function generateMockSystemLog() {
+            const levels = ['INFO', 'WARNING', 'ERROR', 'SUCCESS'];
+            const messages = ['Started process', 'Completed task', 'Received message', 'Connection timeout', 'Disk space low', 'New block proposed', 'Vote granted'];
+            const services = ['API Server', 'AuthService', 'RaftConsensus', 'BlockService', 'NetworkLayer'];
+            const randomNodeId = Math.floor(Math.random() * 5) + 1;
+
+            return {
+                id: (Math.random() + 1).toString(36).substring(2),
+                timestamp: new Date(Date.now() - Math.random() * 1000 * 3600 * 24 * 30).toISOString(), // Within last 30 days
+                node_id: `Node-${randomNodeId}`,
+                service_name: services[Math.floor(Math.random() * services.length)],
+                level: levels[Math.floor(Math.random() * levels.length)],
+                message: messages[Math.floor(Math.random() * messages.length)] + ` #${Math.floor(Math.random()*1000)}`,
+            };
+        }
+        function initializeMockSystemLogs(count = 1000) {
+            mockSystemLogs = Array.from({ length: count }, generateMockSystemLog);
+        }
+
+        // --- Mock API Fetch (for this page) ---
+        async function mockFetchLogs(options = {}) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
+
+            const params = options.params || {};
+            const page = params.page || 1;
+            const perPage = params.per_page || LOGS_PER_PAGE;
+
+            const filteredLogs = mockSystemLogs.filter(log => {
+                if (params.level && log.level !== params.level) return false;
+                if (params.keyword && !log.message.toLowerCase().includes(params.keyword.toLowerCase())) return false;
+                const logDate = new Date(log.timestamp);
+                if (params.start_date && logDate < new Date(params.start_date)) return false;
+                if (params.end_date) {
+                    const endDate = new Date(params.end_date);
+                    endDate.setHours(23, 59, 59, 999);
+                    if (logDate > endDate) return false;
+                }
+                return true;
+            });
+            
+            filteredLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            const totalItems = filteredLogs.length;
+            const totalPages = Math.ceil(totalItems / perPage);
+            const startIndex = (page - 1) * perPage;
+            const paginatedLogs = filteredLogs.slice(startIndex, startIndex + perPage);
+
+            return {
+                logs: paginatedLogs,
+                pagination: { currentPage: page, totalPages: totalPages, totalItems: totalItems, perPage: perPage }
+            };
+        }
+
+        // --- Rendering Functions ---
+        function renderLogTable(data) {
+            const container = document.getElementById('log-details-container');
+            const paginationContainer = document.getElementById('log-details-pagination');
+            if (!container || !paginationContainer) return;
+
+            container.innerHTML = '';
+            paginationContainer.innerHTML = '';
+
+            if (!data || !data.logs || data.logs.length === 0) {
+                container.innerHTML = `<p class="placeholder-text">没有找到符合条件的日志</p>`;
+                return;
+            }
+
+            const table = document.createElement('table');
+            table.className = 'w-full text-sm border-collapse';
+            table.innerHTML = `
+                <thead>
+                    <tr>
+                        <th class="table-header">时间戳</th>
+                        <th class="table-header">级别</th>
+                        <th class="table-header">节点</th>
+                        <th class="table-header">服务</th>
+                        <th class="table-header">信息</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            `;
+            const tbody = table.querySelector('tbody');
+            data.logs.forEach(log => {
+                const row = tbody.insertRow();
+                row.className = 'hover:bg-gray-50';
+                let levelColorClass = 'text-gray-700';
+                switch (log.level?.toUpperCase()) {
+                    case 'SUCCESS': levelColorClass = 'text-green-600 font-semibold'; break;
+                    case 'WARNING': levelColorClass = 'text-yellow-600 font-semibold'; break;
+                    case 'ERROR': levelColorClass = 'text-red-600 font-semibold'; break;
+                }
+                row.innerHTML = `
+                    <td class="table-cell whitespace-nowrap text-xs">${formatTimestamp(log.timestamp)}</td>
+                    <td class="table-cell ${levelColorClass}">${log.level || 'N/A'}</td>
+                    <td class="table-cell text-center">${log.node_id || 'N/A'}</td>
+                    <td class="table-cell">${log.service_name || 'N/A'}</td>
+                    <td class="table-cell" title="${log.message}">${log.message}</td>
+                `;
+            });
+            container.appendChild(table);
+            
+            renderPagination(paginationContainer, data.pagination, fetchAndRenderLogs);
+        }
+
+        function renderPagination(container, paginationData, fetchFunction) {
+            if (!paginationData || paginationData.totalPages <= 1) {
+                container.innerHTML = ''; return;
+            }
+            let html = '<nav class="flex items-center justify-between">';
+            html += `<span class="text-xs text-gray-600">共 ${paginationData.totalItems} 条记录，第 ${paginationData.currentPage} / ${paginationData.totalPages} 页</span>`;
+            html += '<div class="space-x-1">';
+            html += `<button onclick="${paginationData.currentPage > 1 ? `${fetchFunction.name}(${paginationData.currentPage - 1})` : ''}"
+                        class="p-2 rounded ${paginationData.currentPage > 1 ? 'hover:bg-gray-200' : 'text-gray-400 cursor-not-allowed'}"
+                        ${paginationData.currentPage <= 1 ? 'disabled' : ''}>&laquo; 上一页</button>`;
+            html += `<button onclick="${paginationData.currentPage < paginationData.totalPages ? `${fetchFunction.name}(${paginationData.currentPage + 1})` : ''}"
+                        class="p-2 rounded ${paginationData.currentPage < paginationData.totalPages ? 'hover:bg-gray-200' : 'text-gray-400 cursor-not-allowed'}"
+                        ${paginationData.currentPage >= paginationData.totalPages ? 'disabled' : ''}>下一页 &raquo;</button>`;
+            html += '</div></nav>';
+            container.innerHTML = html;
+        }
+
+        // --- Data Fetching Wrapper ---
+        async function fetchAndRenderLogs(page = 1) {
+            currentLogPage = page;
+            document.getElementById('log-details-container').innerHTML = '<div class="spinner"></div>';
+            
+            const params = {
+                page: currentLogPage,
+                per_page: LOGS_PER_PAGE,
+                level: logDetailsLevelFilter.value,
+                start_date: logDateStart.value,
+                end_date: logDateEnd.value,
+                keyword: logKeywordFilter.value.trim()
+            };
+            Object.keys(params).forEach(key => (params[key] === '') && delete params[key]);
+
+            try {
+                const data = await mockFetchLogs({ params });
+                renderLogTable(data);
+            } catch(error) {
+                document.getElementById('log-details-container').innerHTML = `<p class="placeholder-text text-red-600">加载日志失败: ${error.message}</p>`;
+            }
+        }
+
+        // --- Auth & Initial Load ---
+        function handleLogout() {
+            localStorage.removeItem('authToken');
+            window.location.href = 'login.html';
+        }
+
+        function checkAuthAndSetupUI() {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                window.location.href = 'login.html';
+                return false;
+            }
+            document.querySelectorAll('.main-application-content, .main-application-nav').forEach(el => {
+                el.style.display = el.matches('.main-application-content') ? 'block' : 'flex';
+            });
+            document.getElementById('logout-btn').addEventListener('click', handleLogout);
+            return true;
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (checkAuthAndSetupUI()) {
+                initializeMockSystemLogs();
+                fetchAndRenderLogs(1); // Initial load
+
+                applyAdvancedFilterBtn.addEventListener('click', () => fetchAndRenderLogs(1));
+                clearAdvancedFilterBtn.addEventListener('click', () => {
+                    logDetailsLevelFilter.value = "";
+                    logDateStart.value = "";
+                    logDateEnd.value = "";
+                    logKeywordFilter.value = "";
+                    fetchAndRenderLogs(1);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
