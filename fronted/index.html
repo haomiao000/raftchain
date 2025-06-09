@@ -144,6 +144,11 @@
                                 <tr><td colspan="5"><div class="spinner"></div></td></tr> 
                             </tbody>
                         </table>
+                        <div class="overflow-x-auto border rounded-md">
+                            <table class="w-full text-sm min-w-[600px]">
+                                </table>
+                        </div>
+                        <div id="block-list-pagination" class="flex justify-center items-center p-4"></div>
                     </div>
                 </div>
             </div>
@@ -357,6 +362,7 @@
         // 性能统计的轮询间隔（10秒）。 轮询是指每隔一段时间自动去获取最新数据。
         const POLLING_INTERVAL_PERF = 10000; // ms
 
+        const controlTargetNodeSelect = document.getElementById('control-target-node');
         // 工具函数
         // 在指定的容器元素中显示加载动画（spinner）
         function showLoading(containerElement) {
@@ -468,104 +474,119 @@
                 showError(logTimeline, error, '系统日志');
             }
         }
+        function renderPagination(container, paginationData, fetchFunction) {
+            if (!container || !paginationData || paginationData.totalPages <= 1) {
+                if(container) container.innerHTML = '';
+                return;
+            }
+            let html = '<nav class="flex items-center justify-between w-full">';
+            html += `<span class="text-xs text-gray-600">共 ${paginationData.totalItems} 条记录，第 ${paginationData.currentPage} / ${paginationData.totalPages} 页</span>`;
+            html += '<div class="space-x-1">';
+            html += `<button onclick="${paginationData.currentPage > 1 ? `${fetchFunction.name}(${paginationData.currentPage - 1})` : ''}"
+                        class="p-2 rounded text-sm ${paginationData.currentPage > 1 ? 'hover:bg-gray-200' : 'text-gray-400 cursor-not-allowed'}"
+                        ${paginationData.currentPage <= 1 ? 'disabled' : ''}>&laquo; 上一页</button>`;
+            html += `<button onclick="${paginationData.currentPage < paginationData.totalPages ? `${fetchFunction.name}(${paginationData.currentPage + 1})` : ''}"
+                        class="p-2 rounded text-sm ${paginationData.currentPage < paginationData.totalPages ? 'hover:bg-gray-200' : 'text-gray-400 cursor-not-allowed'}"
+                        ${paginationData.currentPage >= paginationData.totalPages ? 'disabled' : ''}>下一页 &raquo;</button>`;
+            html += '</div></nav>';
+            container.innerHTML = html;
+        }
 
         // Fetch Block Data (Simulated)
-        async function fetchBlockData() {
-             const blockTableBody = document.getElementById('block-list-table');
-             try {
-                 // Real fetch: const response = await fetch(`${API_BASE_URL}/blocks?limit=20`); // Example: get latest 20
-                 // Simulation:
-                 let lastHash = `0x${Math.random().toString(16).substring(2, 10)}`;
-                 const response = await new Promise(resolve => setTimeout(() => resolve({
-                     ok: true,
-                     json: async () => Array.from({length: 10 + Math.floor(Math.random() * 10)}, (_, i) => {
-                         const currentHash = lastHash;
-                         lastHash = `0x${Math.random().toString(16).substring(2, 10)}`;
-                         return {
-                             height: 100 - i,
-                             timestamp: new Date(Date.now() - i * 10000 * (1 + Math.random())).toISOString(),
-                             hash: currentHash,
-                             previousHash: lastHash,
-                             transactionCount: Math.floor(Math.random() * 10)
-                         };
-                     })
-                 }), 1200));
-
-                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                 }
-                 const data = await response.json();
-                 renderBlockData(data);
-             } catch (error) {
-                 showError(blockTableBody.parentNode, error); // Show error in the table's container
-             }
+        async function fetchBlockData(page = 1) {
+            const blockTableBody = document.getElementById('block-list-table');
+            const paginationContainer = document.getElementById('block-list-pagination');
+            blockTableBody.innerHTML = `<tr><td colspan="5"><div class="spinner"></div></td></tr>`;
+            if(paginationContainer) paginationContainer.innerHTML = '';
+            
+            try {
+                const data = await fetchWithAuth(`${API_BASE_URL}/api/v1/block?page=${page}&limit=15`);
+                renderBlockData(data.blocks);
+                renderPagination(paginationContainer, data.pagination, fetchBlockData);
+            } catch (error) {
+                showError(blockTableBody.parentNode, error, '区块列表');
+            }
         }
 
         // Fetch Transaction Pool Data (Simulated)
+        // 修改：fetchTransactionPool 现在调用后端API
         async function fetchTransactionPool() {
             const poolList = document.getElementById('transaction-pool-list');
             try {
-                // Real fetch: const response = await fetch(`${API_BASE_URL}/transactions/pool`);
-                // Simulation:
-                 const response = await new Promise(resolve => setTimeout(() => resolve({
-                     ok: true,
-                     json: async () => Array.from({length: Math.floor(Math.random() * 6)}, (_, i) => ({
-                        id: `tx_${Math.random().toString(16).substring(2, 12)}`,
-                        sender: `Sender${i+1}`,
-                        receiver: `Receiver${i+1}`,
-                        amount: (Math.random() * 100).toFixed(2)
-                     }))
-                 }), 600));
-
-                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                 }
-                 const data = await response.json();
-                 renderTransactionPool(data);
+                // --- 修改：从模拟数据改为真实API调用 ---
+                const data = await fetchWithAuth(`${API_BASE_URL}/api/v1/transactions/GetTransactionPool`);
+                renderTransactionPool(data);
             } catch (error) {
-                showError(poolList, error);
+                showError(poolList.parentNode, error, '交易池');
             }
         }
 
          // Fetch Performance Data (Simulated)
-         async function fetchPerformanceData() {
-             const tpsElement = document.getElementById('tps-statistic');
-             const intervalElement = document.getElementById('block-generation-interval');
-             const latencyElement = document.getElementById('node-message-latency');
-             const feedbackElement = document.getElementById('perf-feedback');
-             feedbackElement.textContent = ''; // Clear previous feedback
+        //  async function fetchPerformanceData() {
+        //      const tpsElement = document.getElementById('tps-statistic');
+        //      const intervalElement = document.getElementById('block-generation-interval');
+        //      const latencyElement = document.getElementById('node-message-latency');
+        //      const feedbackElement = document.getElementById('perf-feedback');
+        //      feedbackElement.textContent = ''; // Clear previous feedback
 
-             try {
-                 // Real fetch: const response = await fetch(`${API_BASE_URL}/performance`);
-                 // Simulation:
-                 const response = await new Promise(resolve => setTimeout(() => resolve({
-                     ok: true,
-                     json: async () => ({
-                         tps: (Math.random() * 25 + 5).toFixed(1), // Simulate 5-30 TPS
-                         blockInterval: (Math.random() * 5 + 8).toFixed(1), // Simulate 8-13s interval
-                         avgLatency: (Math.random() * 60 + 20).toFixed(0) // Simulate 20-80ms latency
-                     })
-                 }), 400));
+        //      try {
+        //          // Real fetch: const response = await fetch(`${API_BASE_URL}/performance`);
+        //          // Simulation:
+        //          const response = await new Promise(resolve => setTimeout(() => resolve({
+        //              ok: true,
+        //              json: async () => ({
+        //                  tps: (Math.random() * 25 + 5).toFixed(1), // Simulate 5-30 TPS
+        //                  blockInterval: (Math.random() * 5 + 8).toFixed(1), // Simulate 8-13s interval
+        //                  avgLatency: (Math.random() * 60 + 20).toFixed(0) // Simulate 20-80ms latency
+        //              })
+        //          }), 400));
 
-                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                 }
-                 const data = await response.json();
-                 tpsElement.textContent = data.tps || '--';
-                 intervalElement.textContent = data.blockInterval ? `${data.blockInterval}s` : '--';
-                 latencyElement.textContent = data.avgLatency ? `${data.avgLatency}ms` : '--';
+        //          if (!response.ok) {
+        //             throw new Error(`HTTP error! status: ${response.status}`);
+        //          }
+        //          const data = await response.json();
+        //          tpsElement.textContent = data.tps || '--';
+        //          intervalElement.textContent = data.blockInterval ? `${data.blockInterval}s` : '--';
+        //          latencyElement.textContent = data.avgLatency ? `${data.avgLatency}ms` : '--';
 
-             } catch (error) {
-                 console.error("Failed to fetch performance data:", error);
-                 tpsElement.textContent = 'Error';
-                 intervalElement.textContent = 'Error';
-                 latencyElement.textContent = 'Error';
-                 feedbackElement.textContent = `性能数据加载失败: ${error.message}`;
-                 feedbackElement.classList.add('text-red-600');
-             }
-         }
+        //      } catch (error) {
+        //          console.error("Failed to fetch performance data:", error);
+        //          tpsElement.textContent = 'Error';
+        //          intervalElement.textContent = 'Error';
+        //          latencyElement.textContent = 'Error';
+        //          feedbackElement.textContent = `性能数据加载失败: ${error.message}`;
+        //          feedbackElement.classList.add('text-red-600');
+        //      }
+        //  }
 
+        async function fetchPerformanceData() {
+            const tpsElement = document.getElementById('tps-statistic');
+            const intervalElement = document.getElementById('block-generation-interval');
+            const latencyElement = document.getElementById('node-message-latency');
+            const electionRateElement = document.getElementById('leader-election-rate');
+            const feedbackElement = document.getElementById('perf-feedback');
+            
+            try {
+                // --- 修改：从模拟数据改为真实API调用 ---
+                const data = await fetchWithAuth(`${API_BASE_URL}/api/v1/control/GetPerformanceStats`);
 
+                tpsElement.textContent = data.tps || '--';
+                intervalElement.textContent = data.blockInterval ? `${data.blockInterval}s` : '--';
+                latencyElement.textContent = data.avgLatency ? `${data.avgLatency}ms` : '--';
+                if (electionRateElement) {
+                electionRateElement.textContent = data.electionRate ? `${data.electionRate} / hr` : '--';
+                }
+                
+                feedbackElement.textContent = `最后更新: ${formatTimestamp(new Date())}`;
+                feedbackElement.classList.remove('text-red-600');
+
+            } catch (error) {
+                console.error("Failed to fetch performance data:", error);
+                [tpsElement, intervalElement, latencyElement, electionRateElement].forEach(el => { if(el) el.textContent = 'Error'; });
+                feedbackElement.textContent = `性能数据加载失败: ${error.message}`;
+                feedbackElement.classList.add('text-red-600');
+            }
+        }
         // --- Rendering Functions ---
 
         // Render Node Status
@@ -685,30 +706,34 @@
         }
 
         // Render Transaction Pool
+        // 修改：renderTransactionPool 现在可以更灵活地展示不同类型的交易
         function renderTransactionPool(poolData) {
             const poolList = document.getElementById('transaction-pool-list');
-             poolList.innerHTML = ''; // Clear previous content
+            poolList.innerHTML = ''; // 清空旧内容
 
-             if (!poolData || poolData.length === 0) {
-                 showEmpty(poolList, "交易池为空");
-                 return;
-             }
+            if (!poolData || poolData.length === 0) {
+                showEmpty(poolList, "交易池为空");
+                return;
+            }
 
             poolData.forEach(tx => {
                 const listItem = document.createElement('li');
-                listItem.classList.add('text-sm', 'mb-2', 'pb-2', 'border-b', 'border-gray-200', 'last:border-b-0', 'font-mono');
+                listItem.classList.add('text-sm', 'mb-2', 'pb-2', 'border-b', 'border-gray-200', 'last:border-b-0');
+                
+                // 使用更通用的方式展示交易信息
                 listItem.innerHTML = `
-                    <span class="block text-xs text-gray-500 truncate" title="${tx.id}">ID: ${abbreviateHash(tx.id, 8, 6)}</span>
-                    <span class="block">From: ${tx.sender}</span>
-                    <span class="block">To: ${tx.receiver}</span>
-                    <span class="block">Amount: ${tx.amount}</span>
+                    <div class="flex justify-between items-center font-mono">
+                        <span class="block text-xs text-gray-500 truncate" title="${tx.id}">ID: ${abbreviateHash(tx.id, 8, 6)}</span>
+                        <span class="text-xs font-semibold px-2 py-1 rounded-full bg-gray-200 text-gray-700">${tx.type}</span>
+                    </div>
+                    <div class="mt-2">
+                        <p class="text-gray-800"><strong>发送者:</strong> <code class="text-xs">${abbreviateHash(tx.sender, 10, 8)}</code></p>
+                        <p class="text-gray-600"><strong>摘要:</strong> ${tx.summary || '无摘要信息'}</p>
+                    </div>
                 `;
-                // Add click listeners for details if needed
-                // listItem.onclick = () => showTransactionDetails(tx.id);
                 poolList.appendChild(listItem);
             });
         }
-
 
         // --- Event Handlers ---
 
@@ -774,25 +799,54 @@
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i> 处理中...';
 
-            // 从新的表单元素获取数据
             const txType = document.getElementById('tx-type').value;
             const senderPublicKey = document.getElementById('tx-sender-pk').value.trim();
-            const payloadString = document.getElementById('tx-payload').value.trim();
+            let payload = {};
+            let formIsValid = true;
 
-            // 前端验证
-            if (!txType || !senderPublicKey || !payloadString) {
-                feedbackEl.textContent = '错误：所有字段均为必填项。';
-                feedbackEl.classList.add('text-red-600');
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw"></i> 提交交易';
-                return;
+            try {
+                if (txType === 'transfer') {
+                    const receiver = document.getElementById('transfer-receiver').value.trim();
+                    const amount = parseFloat(document.getElementById('transfer-amount').value);
+                    if (!receiver || isNaN(amount) || amount <= 0) {
+                        formIsValid = false;
+                        feedbackEl.textContent = '错误：请填写有效的接收者地址和正数金额。';
+                    }
+                    payload = { to: receiver, amount: amount };
+                } else if (txType === 'data_storage') {
+                    const key = document.getElementById('storage-key').value.trim();
+                    const value = document.getElementById('storage-value').value;
+                    if (!key) {
+                        formIsValid = false;
+                        feedbackEl.textContent = '错误：数据键 (Key) 不能为空。';
+                    }
+                    payload = { key: key, value: value };
+                } else if (txType === 'contract_call') {
+                    const contractAddress = document.getElementById('contract-address').value.trim();
+                    const paramsString = document.getElementById('contract-params').value.trim();
+                    if (!contractAddress) {
+                        formIsValid = false;
+                        feedbackEl.textContent = '错误：合约地址不能为空。';
+                    }
+                    try {
+                        const params = paramsString ? JSON.parse(paramsString) : {};
+                        payload = { contractAddress: contractAddress, params: params };
+                    } catch(e) {
+                        formIsValid = false;
+                        feedbackEl.textContent = '错误：调用参数必须是有效的JSON格式。';
+                    }
+                }
+            } catch (e) {
+                formIsValid = false;
+                feedbackEl.textContent = '错误：表单数据处理异常。';
             }
 
-            let payload;
-            try {
-                payload = JSON.parse(payloadString);
-            } catch (e) {
-                feedbackEl.textContent = '错误：交易内容必须是有效的JSON格式。';
+            if (!senderPublicKey) {
+                formIsValid = false;
+                feedbackEl.textContent = '错误：发送者公钥不能为空。';
+            }
+            
+            if (!formIsValid) {
                 feedbackEl.classList.add('text-red-600');
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="fa-solid fa-paper-plane fa-fw"></i> 提交交易';
@@ -806,37 +860,17 @@
             };
 
             try {
-                // 模拟API调用
-                console.log("Submitting transaction:", requestBody);
-                const response = await new Promise(resolve => setTimeout(() => {
-                    if (Math.random() > 0.1) { // 90% 成功率
-                        resolve({
-                            ok: true,
-                            json: async () => ({ transactionHash: `0xSIM_${Math.random().toString(16).substring(2, 14)}` })
-                        });
-                    } else {
-                        resolve({ ok: false, status: 500, json: async () => ({ message: "Simulated server error: Invalid payload for selected type" }) });
-                    }
-                }, 1000));
-
-
-                if (!response.ok) {
-                    let errorMsg = `HTTP error! status: ${response.status}`;
-                    try { 
-                        const errorData = await response.json();
-                        errorMsg = errorData.message || errorMsg;
-                    } catch (e) { /* 忽略 */ }
-                    throw new Error(errorMsg);
-                }
-
-                const result = await response.json();
-                feedbackEl.textContent = `交易提交成功! 哈希: ${abbreviateHash(result.transactionHash)}`;
+                // --- 修改：从模拟数据改为真实API调用 ---
+                const result = await fetchWithAuth(`${API_BASE_URL}/api/v1/transactions/SubmitTransaction`, {
+                    method: 'POST',
+                    body: JSON.stringify(requestBody)
+                });
+                
+                feedbackEl.textContent = `${result.message}! 哈希: ${abbreviateHash(result.transactionHash)}`;
                 feedbackEl.classList.add('text-green-600');
-                document.getElementById('transaction-form').reset(); // 成功后清空表单
-                fetchTransactionPool(); // 刷新交易池列表
-
+                fetchTransactionPool(); // 成功后刷新交易池
+                
             } catch (error) {
-                console.error("Transaction submission failed:", error);
                 feedbackEl.textContent = `交易失败: ${error.message}`;
                 feedbackEl.classList.add('text-red-600');
             } finally {
@@ -851,47 +885,96 @@
         const controlFeedback = document.getElementById('control-feedback');
 
         // 一个通用的异步函数，用于处理所有控制按钮的点击事件。
+        // async function handleControlButtonClick(action, buttonElement) {
+        //     controlFeedback.textContent = `正在执行: ${action}...`;
+        //     controlFeedback.classList.remove('text-red-600', 'text-green-600');
+        //     buttonElement.disabled = true;
+        //     const originalText = buttonElement.innerHTML;
+        //     buttonElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i>';
+
+
+        //     try {
+        //          // Real fetch:
+        //          /*
+        //          const response = await fetch(`${API_BASE_URL}/system/control`, {
+        //              method: 'POST',
+        //              headers: { 'Content-Type': 'application/json' },
+        //              body: JSON.stringify({ action: action, targetNodeId: null }) // Add target node if needed
+        //          });
+        //          */
+        //          // Simulation:
+        //          const response = await new Promise(resolve => setTimeout(() => {
+        //               if (Math.random() > 0.15) { // 85% success
+        //                   resolve({ ok: true, json: async () => ({ message: `${action} 操作成功模拟` }) });
+        //               } else {
+        //                    resolve({ ok: false, status: 500, json: async () => ({ message: `模拟执行 ${action} 失败` }) });
+        //               }
+        //          }, 1500));
+
+        //          if (!response.ok) {
+        //              const errorData = await response.json();
+        //              throw new Error(errorData.message || `操作失败 (status ${response.status})`);
+        //          }
+        //          const result = await response.json();
+        //          controlFeedback.textContent = `成功: ${result.message}`;
+        //          controlFeedback.classList.add('text-green-600');
+
+        //     } catch(error) {
+        //          console.error(`Control action '${action}' failed:`, error);
+        //          controlFeedback.textContent = `失败: ${error.message}`;
+        //          controlFeedback.classList.add('text-red-600');
+        //     } finally {
+        //          buttonElement.disabled = false;
+        //          buttonElement.innerHTML = originalText;
+        //     }
+        // }
         async function handleControlButtonClick(action, buttonElement) {
-            controlFeedback.textContent = `正在执行: ${action}...`;
-            controlFeedback.classList.remove('text-red-600', 'text-green-600');
+            const targetNodeId = controlTargetNodeSelect.value;
+            const feedbackEl = controlFeedback;
+
+            if (!targetNodeId) {
+                feedbackEl.textContent = `请先从下拉框中选择一个目标节点再执行操作。`;
+                feedbackEl.className = 'text-sm mt-4 p-3 rounded-md flex items-center text-red-700 bg-red-100';
+                return;
+            }
+
+            feedbackEl.textContent = `正在向节点 ${targetNodeId} 发送 '${action}' 指令...`;
+            feedbackEl.className = 'text-sm mt-4 p-3 rounded-md bg-gray-100 min-h-[44px] flex items-center text-gray-700';
             buttonElement.disabled = true;
-            const originalText = buttonElement.innerHTML;
+            const originalHTML = buttonElement.innerHTML;
             buttonElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i>';
 
+            let requestBody = {
+                action: action,
+                targetNodeId: targetNodeId
+            };
+
+            if (action === 'delay_network') {
+                requestBody.delay_ms = parseInt(document.getElementById('control-network-delay-ms').value, 10) || 0;
+            }
 
             try {
-                 // Real fetch:
-                 /*
-                 const response = await fetch(`${API_BASE_URL}/system/control`, {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({ action: action, targetNodeId: null }) // Add target node if needed
-                 });
-                 */
-                 // Simulation:
-                 const response = await new Promise(resolve => setTimeout(() => {
-                      if (Math.random() > 0.15) { // 85% success
-                          resolve({ ok: true, json: async () => ({ message: `${action} 操作成功模拟` }) });
-                      } else {
-                           resolve({ ok: false, status: 500, json: async () => ({ message: `模拟执行 ${action} 失败` }) });
-                      }
-                 }, 1500));
+                // --- 修改：从模拟数据改为真实API调用 ---
+                const result = await fetchWithAuth(`${API_BASE_URL}/api/v1/control/ControlNode`, {
+                    method: 'POST',
+                    body: JSON.stringify(requestBody)
+                });
 
-                 if (!response.ok) {
-                     const errorData = await response.json();
-                     throw new Error(errorData.message || `操作失败 (status ${response.status})`);
-                 }
-                 const result = await response.json();
-                 controlFeedback.textContent = `成功: ${result.message}`;
-                 controlFeedback.classList.add('text-green-600');
+                feedbackEl.textContent = `成功: ${result.message}`;
+                feedbackEl.classList.add('text-green-700', 'bg-green-100');
+                
+                // 如果是影响节点状态的操作，可以立即刷新一下节点状态
+                if (action === 'start_node' || action === 'stop_node' || action === 'crash_node') {
+                    fetchNodeStatus();
+                }
 
             } catch(error) {
-                 console.error(`Control action '${action}' failed:`, error);
-                 controlFeedback.textContent = `失败: ${error.message}`;
-                 controlFeedback.classList.add('text-red-600');
+                console.error(`Control action '${action}' failed:`, error);
+                feedbackEl.textContent = `失败: ${error.message}`;
+                feedbackEl.classList.add('text-red-700', 'bg-red-100');
             } finally {
-                 buttonElement.disabled = false;
-                 buttonElement.innerHTML = originalText;
+                buttonElement.disabled = false;
+                buttonElement.innerHTML = originalHTML;
             }
         }
 
@@ -952,53 +1035,43 @@
             // --- 都放在这个 if (isAuthenticated) 条件块内 ---
 
             // 例如：
-            const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'; // 确保指向后端受保护API
+            const API_BASE_URL = 'http://127.0.0.1:8080'; // 确保指向后端受保护API
             // ... (你所有的其他 const 定义和函数定义)
 
             // --- Event Handlers ---
             function showSection(id, btn) {
-                // 确保这里的选择器正确
-                document.querySelectorAll('main.main-application-content section').forEach(section => { // 修正选择器
+                document.querySelectorAll('main section').forEach(section => {
                     section.classList.add('hidden');
                 });
-                // 更新导航按钮的选择器，确保它指向 #main-navigation-items 内的按钮
-                document.querySelectorAll('#main-navigation-items button').forEach(button => {
+                document.querySelectorAll('header nav button').forEach(button => {
                     button.classList.remove('active-nav-btn', 'bg-blue-700');
                     button.classList.add('hover:bg-gray-700');
                 });
+
                 const sectionToShow = document.getElementById(id);
-                if (sectionToShow) { sectionToShow.classList.remove('hidden'); }
+                if (sectionToShow) {
+                    sectionToShow.classList.remove('hidden');
+                }
                 if (btn) {
                     btn.classList.add('active-nav-btn');
                     btn.classList.remove('hover:bg-gray-700');
                 }
-                // ... (switch case for data fetching) ...
-                switch(id) {
-                    case 'dashboard': fetchNodeStatus(); fetchLogData(); break;
-                    // ... 其他 cases
+                
+                // 确保在切换到区块浏览器时，默认显示列表并加载第一页
+                if (id === 'blockchain-explorer') {
+                    blockDetailsView.classList.add('hidden');
+                    blockListView.classList.remove('hidden');
+                    fetchBlockData(1);
+                } else if (id === 'dashboard') {
+                    fetchNodeStatus();
+                    fetchLogData();
+                } else if (id === 'transaction') {
+                    fetchTransactionPool();
+                } else if (id === 'system-detection') {
+                    fetchPerformanceData();
                 }
-            }
-            // ... (你所有的其他函数和 DOMContentLoaded 里的初始化逻辑) ...
-            // 确保 fetchWithAuth 和所有 API 调用函数都正确定义并使用
-            async function fetchWithAuth(url, options = {}) { /* ... (之前提供的实现) ... */ 
-                const token = localStorage.getItem('authToken');
-                if (!token) {
-                    console.warn("fetchWithAuth: No token found, logging out.");
-                    handleLogout();
-                    throw new Error("用户未认证，请求中止。");
-                }
-                const defaultHeaders = {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                };
-                const config = { /* ... */ };
-                const response = await fetch(url, config);
-                if (response.status === 401) { /* ... */ throw { message: "认证失败", status: 401 };}
-                if (!response.ok) { /* ... */ throw new Error("HTTP Error"); }
-                return response.json();
             }
 
-            const controlTargetNodeSelect = document.getElementById('control-target-node');
             const controlFeedback = document.getElementById('control-feedback');
 
             // 新增：此函数用于填充节点控制的下拉选择框
@@ -1048,106 +1121,106 @@
                 }
             }
 
-            // 修改：更新 fetchPerformanceData 函数，增加对选举频率的处理
-            async function fetchPerformanceData() {
-                const tpsElement = document.getElementById('tps-statistic');
-                const intervalElement = document.getElementById('block-generation-interval');
-                const latencyElement = document.getElementById('node-message-latency');
-                const electionRateElement = document.getElementById('leader-election-rate'); // 新增
-                const feedbackElement = document.getElementById('perf-feedback');
-                feedbackElement.textContent = '';
+            // // 修改：更新 fetchPerformanceData 函数，增加对选举频率的处理
+            // async function fetchPerformanceData() {
+            //     const tpsElement = document.getElementById('tps-statistic');
+            //     const intervalElement = document.getElementById('block-generation-interval');
+            //     const latencyElement = document.getElementById('node-message-latency');
+            //     const electionRateElement = document.getElementById('leader-election-rate'); // 新增
+            //     const feedbackElement = document.getElementById('perf-feedback');
+            //     feedbackElement.textContent = '';
 
-                try {
-                    // ... (你已有的 fetch 逻辑保持不变)
-                    // Simulation:
-                    const response = await new Promise(resolve => setTimeout(() => resolve({
-                        ok: true,
-                        json: async () => ({
-                            tps: (Math.random() * 25 + 5).toFixed(1),
-                            blockInterval: (Math.random() * 5 + 8).toFixed(1),
-                            avgLatency: (Math.random() * 60 + 20).toFixed(0),
-                            electionRate: (Math.random() * 2).toFixed(1) // 新增模拟数据
-                        })
-                    }), 400));
+            //     try {
+            //         // ... (你已有的 fetch 逻辑保持不变)
+            //         // Simulation:
+            //         const response = await new Promise(resolve => setTimeout(() => resolve({
+            //             ok: true,
+            //             json: async () => ({
+            //                 tps: (Math.random() * 25 + 5).toFixed(1),
+            //                 blockInterval: (Math.random() * 5 + 8).toFixed(1),
+            //                 avgLatency: (Math.random() * 60 + 20).toFixed(0),
+            //                 electionRate: (Math.random() * 2).toFixed(1) // 新增模拟数据
+            //             })
+            //         }), 400));
 
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    const data = await response.json();
-                    tpsElement.textContent = data.tps || '--';
-                    intervalElement.textContent = data.blockInterval ? `${data.blockInterval}s` : '--';
-                    latencyElement.textContent = data.avgLatency ? `${data.avgLatency}ms` : '--';
+            //         if (!response.ok) {
+            //             throw new Error(`HTTP error! status: ${response.status}`);
+            //         }
+            //         const data = await response.json();
+            //         tpsElement.textContent = data.tps || '--';
+            //         intervalElement.textContent = data.blockInterval ? `${data.blockInterval}s` : '--';
+            //         latencyElement.textContent = data.avgLatency ? `${data.avgLatency}ms` : '--';
 
-                    // --- 新增对新元素的支持 ---
-                    if (electionRateElement) {
-                        electionRateElement.textContent = data.electionRate ? `${data.electionRate} / hr` : '--';
-                    }
-                    // --- 结束新增 ---
+            //         // --- 新增对新元素的支持 ---
+            //         if (electionRateElement) {
+            //             electionRateElement.textContent = data.electionRate ? `${data.electionRate} / hr` : '--';
+            //         }
+            //         // --- 结束新增 ---
                     
-                    feedbackElement.textContent = `最后更新: ${formatTimestamp(new Date())}`;
+            //         feedbackElement.textContent = `最后更新: ${formatTimestamp(new Date())}`;
 
-                } catch (error) {
-                    console.error("Failed to fetch performance data:", error);
-                    [tpsElement, intervalElement, latencyElement, electionRateElement].forEach(el => { if(el) el.textContent = 'Error'; });
-                    feedbackElement.textContent = `性能数据加载失败: ${error.message}`;
-                    feedbackElement.classList.add('text-red-600');
-                }
-            }
+            //     } catch (error) {
+            //         console.error("Failed to fetch performance data:", error);
+            //         [tpsElement, intervalElement, latencyElement, electionRateElement].forEach(el => { if(el) el.textContent = 'Error'; });
+            //         feedbackElement.textContent = `性能数据加载失败: ${error.message}`;
+            //         feedbackElement.classList.add('text-red-600');
+            //     }
+            // }
 
             // 修改：用这个新版本的 handleControlButtonClick 函数替换掉旧的
-            async function handleControlButtonClick(action, buttonElement) {
-                const targetNodeId = controlTargetNodeSelect.value;
-                const feedbackEl = controlFeedback;
+            // async function handleControlButtonClick(action, buttonElement) {
+            //     const targetNodeId = controlTargetNodeSelect.value;
+            //     const feedbackEl = controlFeedback;
 
-                // 验证是否选择了目标节点
-                if (!targetNodeId) {
-                    feedbackEl.textContent = `请先从下拉框中选择一个目标节点再执行操作。`;
-                    feedbackEl.className = 'text-sm mt-4 p-3 rounded-md flex items-center text-red-700 bg-red-100';
-                    return;
-                }
+            //     // 验证是否选择了目标节点
+            //     if (!targetNodeId) {
+            //         feedbackEl.textContent = `请先从下拉框中选择一个目标节点再执行操作。`;
+            //         feedbackEl.className = 'text-sm mt-4 p-3 rounded-md flex items-center text-red-700 bg-red-100';
+            //         return;
+            //     }
 
-                feedbackEl.textContent = `正在向节点 ${targetNodeId} 发送 '${action}' 指令...`;
-                feedbackEl.className = 'text-sm mt-4 p-3 rounded-md bg-gray-100 min-h-[44px] flex items-center text-gray-700'; // 重置样式
-                buttonElement.disabled = true;
-                const originalHTML = buttonElement.innerHTML;
-                buttonElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i>';
+            //     feedbackEl.textContent = `正在向节点 ${targetNodeId} 发送 '${action}' 指令...`;
+            //     feedbackEl.className = 'text-sm mt-4 p-3 rounded-md bg-gray-100 min-h-[44px] flex items-center text-gray-700'; // 重置样式
+            //     buttonElement.disabled = true;
+            //     const originalHTML = buttonElement.innerHTML;
+            //     buttonElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin fa-fw"></i>';
 
-                let requestBody = { action: action, targetNodeId: targetNodeId };
-                if (action === 'delay_network') {
-                    requestBody.delay_ms = parseInt(document.getElementById('control-network-delay-ms').value, 10) || 0;
-                }
+            //     let requestBody = { action: action, targetNodeId: targetNodeId };
+            //     if (action === 'delay_network') {
+            //         requestBody.delay_ms = parseInt(document.getElementById('control-network-delay-ms').value, 10) || 0;
+            //     }
 
-                try {
-                    // ... (你已有的 fetch 逻辑保持不变)
-                    // Simulation:
-                    const response = await new Promise(resolve => setTimeout(() => {
-                        if (Math.random() > 0.15) {
-                            resolve({ ok: true, json: async () => ({ message: `'${action}' 操作已成功模拟于节点 ${targetNodeId}` }) });
-                        } else {
-                            resolve({ ok: false, status: 500, json: async () => ({ message: `模拟执行 '${action}' 失败` }) });
-                        }
-                    }, 1500));
+            //     try {
+            //         // ... (你已有的 fetch 逻辑保持不变)
+            //         // Simulation:
+            //         const response = await new Promise(resolve => setTimeout(() => {
+            //             if (Math.random() > 0.15) {
+            //                 resolve({ ok: true, json: async () => ({ message: `'${action}' 操作已成功模拟于节点 ${targetNodeId}` }) });
+            //             } else {
+            //                 resolve({ ok: false, status: 500, json: async () => ({ message: `模拟执行 '${action}' 失败` }) });
+            //             }
+            //         }, 1500));
 
-                    if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.message || `操作失败 (status ${response.status})`);
-                    }
-                    const result = await response.json();
-                    feedbackEl.textContent = `成功: ${result.message}`;
-                    feedbackEl.classList.add('text-green-700', 'bg-green-100');
+            //         if (!response.ok) {
+            //             const errorData = await response.json();
+            //             throw new Error(errorData.message || `操作失败 (status ${response.status})`);
+            //         }
+            //         const result = await response.json();
+            //         feedbackEl.textContent = `成功: ${result.message}`;
+            //         feedbackEl.classList.add('text-green-700', 'bg-green-100');
                     
-                    // 立即刷新节点状态以看到变化
-                    fetchNodeStatus();
+            //         // 立即刷新节点状态以看到变化
+            //         fetchNodeStatus();
 
-                } catch(error) {
-                    console.error(`Control action '${action}' failed:`, error);
-                    feedbackEl.textContent = `失败: ${error.message}`;
-                    feedbackEl.classList.add('text-red-700', 'bg-red-100');
-                } finally {
-                    buttonElement.disabled = false;
-                    buttonElement.innerHTML = originalHTML;
-                }
-            }
+            //     } catch(error) {
+            //         console.error(`Control action '${action}' failed:`, error);
+            //         feedbackEl.textContent = `失败: ${error.message}`;
+            //         feedbackEl.classList.add('text-red-700', 'bg-red-100');
+            //     } finally {
+            //         buttonElement.disabled = false;
+            //         buttonElement.innerHTML = originalHTML;
+            //     }
+            // }
             // ... etc.
             
             
@@ -1218,49 +1291,21 @@
                 }
             }
 
-            // 新增：此函数负责显示详情页并触发数据获取
             async function showBlockDetails(blockHeight) {
                 blockListView.classList.add('hidden');
                 blockDetailsView.classList.remove('hidden');
-                // 显示加载动画
                 document.getElementById('detail-block-height-title').textContent = '加载中...';
                 document.getElementById('detail-transactions-list').innerHTML = '<div class="spinner"></div>';
                 
                 try {
-                    // --- 模拟API调用：根据区块高度获取详情 ---
-                    const lastHash = `0xSIM_DETAIL_${Math.random().toString(16).substring(2, 22)}`;
-                    const response = await new Promise(resolve => setTimeout(() => resolve({
-                        ok: true,
-                        json: async () => {
-                            const txCount = blockHeight % 5 === 0 ? 0 : Math.floor(Math.random() * 5) + 1; // 让一些区块没有交易
-                            return {
-                                height: blockHeight,
-                                timestamp: new Date(Date.now() - (100000 - blockHeight) * 10000).toISOString(),
-                                hash: `0x${Math.random().toString(16).substring(2, 10)}${Math.random().toString(16).substring(2, 10)}`,
-                                previousHash: lastHash,
-                                transactionCount: txCount,
-                                term: Math.floor(blockHeight / 10),
-                                proposerNodeId: (blockHeight % 3) + 1,
-                                size: Math.floor(Math.random() * 1000) + 500,
-                                transactions: Array.from({length: txCount}, (_, i) => ({
-                                    id: `tx_${Math.random().toString(36).substring(2, 10)}`,
-                                    sender: `Sender${i}`,
-                                    receiver: `Receiver${i}`,
-                                    amount: (Math.random() * 10).toFixed(2)
-                                }))
-                            };
-                        }
-                    }), 600)); // 模拟网络延迟
-
-                    if (!response.ok) {
-                        throw new Error(`无法获取区块 #${blockHeight} 的信息`);
-                    }
-                    const blockDetails = await response.json();
+                    const blockDetails = await fetchWithAuth(`${API_BASE_URL}/api/v1/block/${blockHeight}`);
+                    
                     renderBlockDetails(blockDetails);
                     
                 } catch (error) {
-                    document.getElementById('detail-transactions-list').innerHTML = `<p class="placeholder-text text-red-600">${error.message}</p>`;
-                    console.error("Failed to fetch block details:", error);
+                    const container = document.getElementById('detail-transactions-list');
+                    showError(container, error, `区块 #${blockHeight} 详情`);
+                    document.getElementById('detail-block-height-title').textContent = `错误`;
                 }
             }
 
@@ -1271,7 +1316,6 @@
             });
 
             // ========== 结束：将这些新增和修改的JS函数粘贴到 <script> 标签内 ==========
-            // ========== 开始：将这些新增和修改的JS函数粘贴到 <script> 标签内 ==========
 
             // 新增：此函数根据交易类型的选择，动态显示/隐藏对应的输入字段
             function updateTransactionFields() {

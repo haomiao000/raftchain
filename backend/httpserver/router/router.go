@@ -19,6 +19,9 @@ func InitRouters(r *gin.Engine) {
 	{
 		registerNodeRoute(apiV1)
 		registeLogRoute(apiV1)
+		registeBlockRoute(apiV1)
+		registeTransactionRoute(apiV1)
+		registeControlRoute(apiV1)
 	}
 
 	// 不需要身份认证
@@ -52,4 +55,23 @@ func registerNodeRoute(rg *gin.RouterGroup) {
 func registeLogRoute(rg *gin.RouterGroup) {
 	r := rg.Group("/log")
 	r.GET("/GetSystemLogs", server.GetSystemLogs)
+	r.GET("/GetAdvancedLogs",server.GetAdvancedLogs)
+}
+
+func registeBlockRoute(rg *gin.RouterGroup) {
+	r := rg.Group("/block")
+	r.GET("", server.GetBlocks) // 获取区块列表
+	r.GET("/:height", server.GetBlockByHeight) // 获取区块详情
+}
+
+func registeTransactionRoute(rg *gin.RouterGroup) {
+	r := rg.Group("/transactions")
+	r.POST("/SubmitTransaction", server.SubmitTransaction)
+	r.GET("/GetTransactionPool", server.GetTransactionPool)
+}
+
+func registeControlRoute(rg *gin.RouterGroup) {
+	r := rg.Group("/control")
+	r.GET("/GetPerformanceStats", server.GetPerformanceStats)
+	r.POST("/ControlNode", server.ControlNode)
 }

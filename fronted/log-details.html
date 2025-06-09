@@ -72,6 +72,12 @@
                          <button id="apply-advanced-filter-btn" class="btn btn-primary w-full"><i class="fa-solid fa-filter fa-fw mr-1"></i>筛选日志</button>
                          <button id="clear-advanced-filter-btn" class="btn btn-secondary w-full"><i class="fa-solid fa-times fa-fw mr-1"></i>清除筛选</button>
                     </div>
+                    <div>
+                        <label for="log-details-node-filter" class="block text-sm font-medium text-gray-700">节点</label>
+                        <select id="log-details-node-filter" class="mt-1 block w-full p-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <option value="">所有节点</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             
@@ -90,130 +96,141 @@
 
     <script>
         // --- Configuration & Global State ---
-        const API_BASE_URL = 'http://127.0.0.1:8080/api/v1'; // Mock API
+        const API_BASE_URL = 'http://127.0.0.1:8080'; // API基础路径
         const LOGS_PER_PAGE = 20;
         let currentLogPage = 1;
-        let mockSystemLogs = []; // Store all mock logs for filtering
-
+    
         // --- DOM Elements ---
+        const logDetailsNodeFilter = document.getElementById('log-details-node-filter');
         const logDetailsLevelFilter = document.getElementById('log-details-level-filter');
         const logDateStart = document.getElementById('log-date-start');
         const logDateEnd = document.getElementById('log-date-end');
         const logKeywordFilter = document.getElementById('log-keyword-filter');
         const applyAdvancedFilterBtn = document.getElementById('apply-advanced-filter-btn');
         const clearAdvancedFilterBtn = document.getElementById('clear-advanced-filter-btn');
-
-        // --- Utility Functions ---
-        function formatTimestamp(isoString) {
-            if (!isoString) return 'N/A';
-            return new Date(isoString).toLocaleString('sv-SE');
+    
+        // --- NEW: Reusable Authenticated Fetch Function ---
+        async function fetchWithAuth(url, options = {}) {
+            const token = localStorage.getItem('authToken');
+            if (!token) {
+                window.location.href = 'login.html';
+                throw { message: "用户未认证", status: 401 };
+            }
+            const headers = { ...options.headers, 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+            const response = await fetch(url, { ...options, headers });
+            if (response.status === 401) {
+                handleLogout();
+                throw { message: "认证已过期，请重新登录", status: 401 };
+            }
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: `HTTP error! status: ${response.status}` }));
+                throw new Error(errorData.error || `请求失败: ${response.statusText}`);
+            }
+            return response.json();
         }
-
-        // --- Mock Data Generators ---
-        function generateMockSystemLog() {
-            const levels = ['INFO', 'WARNING', 'ERROR', 'SUCCESS'];
-            const messages = ['Started process', 'Completed task', 'Received message', 'Connection timeout', 'Disk space low', 'New block proposed', 'Vote granted'];
-            const services = ['API Server', 'AuthService', 'RaftConsensus', 'BlockService', 'NetworkLayer'];
-            const randomNodeId = Math.floor(Math.random() * 5) + 1;
-
-            return {
-                id: (Math.random() + 1).toString(36).substring(2),
-                timestamp: new Date(Date.now() - Math.random() * 1000 * 3600 * 24 * 30).toISOString(), // Within last 30 days
-                node_id: `Node-${randomNodeId}`,
-                service_name: services[Math.floor(Math.random() * services.length)],
-                level: levels[Math.floor(Math.random() * levels.length)],
-                message: messages[Math.floor(Math.random() * messages.length)] + ` #${Math.floor(Math.random()*1000)}`,
-            };
+    
+        // --- Data Fetching ---
+        async function fetchNodesAndPopulateFilter() {
+            try {
+                const nodes = await fetchWithAuth(`${API_BASE_URL}/api/v1/node/GetNodeStatus`);
+                logDetailsNodeFilter.innerHTML = '<option value="">所有节点</option>'; // Reset
+                nodes.forEach(node => {
+                    const option = document.createElement('option');
+                    option.value = node.id;
+                    option.textContent = node.name || `Node ${node.id}`;
+                    logDetailsNodeFilter.appendChild(option);
+                });
+            } catch (error) {
+                console.error("Failed to fetch nodes for filter:", error);
+                logDetailsNodeFilter.innerHTML = '<option value="">无法加载节点</option>';
+            }
         }
-        function initializeMockSystemLogs(count = 1000) {
-            mockSystemLogs = Array.from({ length: count }, generateMockSystemLog);
-        }
-
-        // --- Mock API Fetch (for this page) ---
-        async function mockFetchLogs(options = {}) {
-            await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-
-            const params = options.params || {};
-            const page = params.page || 1;
-            const perPage = params.per_page || LOGS_PER_PAGE;
-
-            const filteredLogs = mockSystemLogs.filter(log => {
-                if (params.level && log.level !== params.level) return false;
-                if (params.keyword && !log.message.toLowerCase().includes(params.keyword.toLowerCase())) return false;
-                const logDate = new Date(log.timestamp);
-                if (params.start_date && logDate < new Date(params.start_date)) return false;
-                if (params.end_date) {
-                    const endDate = new Date(params.end_date);
-                    endDate.setHours(23, 59, 59, 999);
-                    if (logDate > endDate) return false;
-                }
-                return true;
-            });
+    
+        async function fetchAndRenderLogs(page = 1) {
+            currentLogPage = page;
+            document.getElementById('log-details-container').innerHTML = '<div class="spinner"></div>';
             
-            filteredLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-            const totalItems = filteredLogs.length;
-            const totalPages = Math.ceil(totalItems / perPage);
-            const startIndex = (page - 1) * perPage;
-            const paginatedLogs = filteredLogs.slice(startIndex, startIndex + perPage);
-
-            return {
-                logs: paginatedLogs,
-                pagination: { currentPage: page, totalPages: totalPages, totalItems: totalItems, perPage: perPage }
-            };
+            // 构建带查询参数的URL
+            const params = new URLSearchParams({
+                page: currentLogPage,
+                limit: LOGS_PER_PAGE,
+            });
+            if (logDetailsLevelFilter.value) params.append('level', logDetailsLevelFilter.value);
+            if (logDetailsNodeFilter.value) params.append('node_id', logDetailsNodeFilter.value);
+            if (logDateStart.value) params.append('start_date', logDateStart.value);
+            if (logDateEnd.value) params.append('end_date', logDateEnd.value);
+            if (logKeywordFilter.value.trim()) params.append('keyword', logKeywordFilter.value.trim());
+    
+            try {
+                // 使用真实API调用替换mock
+                const data = await fetchWithAuth(`${API_BASE_URL}/api/v1/log/GetAdvancedLogs?${params.toString()}`);
+                renderLogTable(data);
+            } catch(error) {
+                document.getElementById('log-details-container').innerHTML = `<p class="placeholder-text text-red-600">加载日志失败: ${error.message}</p>`;
+            }
         }
-
-        // --- Rendering Functions ---
+    
+        // --- Rendering Functions (Unchanged from previous mock implementation) ---
+       // ========== 开始：用这个新版本的函数替换旧的 renderLogTable 函数 ==========
         function renderLogTable(data) {
             const container = document.getElementById('log-details-container');
             const paginationContainer = document.getElementById('log-details-pagination');
-            if (!container || !paginationContainer) return;
-
-            container.innerHTML = '';
-            paginationContainer.innerHTML = '';
+            container.innerHTML = ''; // 清空旧内容
+            paginationContainer.innerHTML = ''; // 清空旧分页
 
             if (!data || !data.logs || data.logs.length === 0) {
                 container.innerHTML = `<p class="placeholder-text">没有找到符合条件的日志</p>`;
                 return;
             }
 
+            // 创建表格结构，这次包含完整的表头
             const table = document.createElement('table');
             table.className = 'w-full text-sm border-collapse';
             table.innerHTML = `
-                <thead>
+                <thead class="bg-gray-50">
                     <tr>
                         <th class="table-header">时间戳</th>
                         <th class="table-header">级别</th>
-                        <th class="table-header">节点</th>
-                        <th class="table-header">服务</th>
+                        <th class="table-header">节点 ID</th>
                         <th class="table-header">信息</th>
                     </tr>
                 </thead>
-                <tbody></tbody>
+                <tbody>
+                    </tbody>
             `;
             const tbody = table.querySelector('tbody');
+
+            // 循环遍历后端返回的日志数据，并创建每一行
             data.logs.forEach(log => {
                 const row = tbody.insertRow();
                 row.className = 'hover:bg-gray-50';
+                
+                // 根据日志级别设置不同的颜色
                 let levelColorClass = 'text-gray-700';
-                switch (log.level?.toUpperCase()) {
+                switch (log.level) {
                     case 'SUCCESS': levelColorClass = 'text-green-600 font-semibold'; break;
                     case 'WARNING': levelColorClass = 'text-yellow-600 font-semibold'; break;
-                    case 'ERROR': levelColorClass = 'text-red-600 font-semibold'; break;
+                    case 'ERROR':   levelColorClass = 'text-red-600 font-semibold'; break;
                 }
+
+                // 填充每个单元格的内容
+                // 注意：我们移除了 'service_name' 列，因为它不在你的后端返回数据中
                 row.innerHTML = `
-                    <td class="table-cell whitespace-nowrap text-xs">${formatTimestamp(log.timestamp)}</td>
+                    <td class="table-cell whitespace-nowrap text-xs">${log.timestamp || 'N/A'}</td>
                     <td class="table-cell ${levelColorClass}">${log.level || 'N/A'}</td>
                     <td class="table-cell text-center">${log.node_id || 'N/A'}</td>
-                    <td class="table-cell">${log.service_name || 'N/A'}</td>
-                    <td class="table-cell" title="${log.message}">${log.message}</td>
+                    <td class="table-cell" title="${log.message || ''}">${log.message || ''}</td>
                 `;
             });
+
+            // 将完整的表格添加到容器中
             container.appendChild(table);
             
+            // 渲染分页组件
             renderPagination(paginationContainer, data.pagination, fetchAndRenderLogs);
         }
-
+        // ========== 结束：用这个新版本的函数替换旧的 renderLogTable 函数 ==========
+    
         function renderPagination(container, paginationData, fetchFunction) {
             if (!paginationData || paginationData.totalPages <= 1) {
                 container.innerHTML = ''; return;
@@ -231,35 +248,13 @@
             container.innerHTML = html;
         }
 
-        // --- Data Fetching Wrapper ---
-        async function fetchAndRenderLogs(page = 1) {
-            currentLogPage = page;
-            document.getElementById('log-details-container').innerHTML = '<div class="spinner"></div>';
-            
-            const params = {
-                page: currentLogPage,
-                per_page: LOGS_PER_PAGE,
-                level: logDetailsLevelFilter.value,
-                start_date: logDateStart.value,
-                end_date: logDateEnd.value,
-                keyword: logKeywordFilter.value.trim()
-            };
-            Object.keys(params).forEach(key => (params[key] === '') && delete params[key]);
-
-            try {
-                const data = await mockFetchLogs({ params });
-                renderLogTable(data);
-            } catch(error) {
-                document.getElementById('log-details-container').innerHTML = `<p class="placeholder-text text-red-600">加载日志失败: ${error.message}</p>`;
-            }
-        }
-
+        
         // --- Auth & Initial Load ---
         function handleLogout() {
             localStorage.removeItem('authToken');
             window.location.href = 'login.html';
         }
-
+    
         function checkAuthAndSetupUI() {
             const token = localStorage.getItem('authToken');
             if (!token) {
@@ -272,15 +267,16 @@
             document.getElementById('logout-btn').addEventListener('click', handleLogout);
             return true;
         }
-
+    
         document.addEventListener('DOMContentLoaded', () => {
             if (checkAuthAndSetupUI()) {
-                initializeMockSystemLogs();
-                fetchAndRenderLogs(1); // Initial load
-
+                fetchNodesAndPopulateFilter(); // 首先加载节点列表到筛选框
+                fetchAndRenderLogs(1);       // 然后加载第一页日志
+    
                 applyAdvancedFilterBtn.addEventListener('click', () => fetchAndRenderLogs(1));
                 clearAdvancedFilterBtn.addEventListener('click', () => {
                     logDetailsLevelFilter.value = "";
+                    logDetailsNodeFilter.value = "";
                     logDateStart.value = "";
                     logDateEnd.value = "";
                     logKeywordFilter.value = "";
