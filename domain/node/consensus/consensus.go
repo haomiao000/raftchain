@@ -19,12 +19,13 @@ import (
 	"github.com/haomiao000/raftchain/library/resource"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"gorm.io/gorm/clause"
 )
 
 type NodeState int
 
 const (
-	Follower  NodeState = iota
+	Follower NodeState = iota
 	Candidate
 	Leader
 )
@@ -77,7 +78,6 @@ func NewConsensusNode(id int, peer map[int]string) *ConsensusNode {
 
 // applyLogs_nl 将已提交但未应用的日志写入数据库
 func (cn *ConsensusNode) applyLogs_nl() {
-	// 直接使用全局的 resource.GormServe
 	q := query.Use(resource.GormServe)
 
 	for cn.lastApplied < cn.commitIndex {
@@ -85,39 +85,35 @@ func (cn *ConsensusNode) applyLogs_nl() {
 		appliedIndex := cn.lastApplied
 		blockToApply := cn.log[appliedIndex]
 
-		log.Printf("[Node %d] Applying block %d to state machine...\n", cn.id, appliedIndex)
+		cn.logEventToDBAsync("INFO", fmt.Sprintf("开始应用区块 %d 到状态机", appliedIndex))
 
 		var transactions []*raft.Transaction
 		if len(blockToApply.Data) > 0 {
 			if err := json.Unmarshal(blockToApply.Data, &transactions); err != nil {
-				log.Printf("[Node %d] ERROR: Failed to unmarshal transactions in block %d: %v. Skipping application.", cn.id, appliedIndex, err)
+				cn.logEventToDBAsync("ERROR", fmt.Sprintf("反序列化区块 %d 中的交易失败: %v", appliedIndex, err))
 				continue
 			}
 		}
 
-		// 使用数据库事务保证原子性
 		err := q.Transaction(func(tx *query.Query) error {
-			// 创建区块记录
 			dbBlock := &model.Block{
 				Height:         int64(appliedIndex),
 				Term:           blockToApply.Term,
 				Hash:           blockToApply.Hash,
 				PrevHash:       blockToApply.PrevHash,
 				Timestamp:      time.Now(),
-				ProposerNodeID: 0, // 暂时为0
+				ProposerNodeID: 0,
 				Data:           blockToApply.Data,
 			}
 			if err := tx.Block.Create(dbBlock); err != nil {
-				return fmt.Errorf("failed to create block in db: %w", err)
+				return fmt.Errorf("创建区块记录失败: %w", err)
 			}
 
-			// 创建交易记录
 			if len(transactions) > 0 {
 				dbTransactions := make([]*model.Tx, len(transactions))
 				for i, tr := range transactions {
 					txHashStr := fmt.Sprintf("%s%d", tr.SenderPublicKey, time.Now().UnixNano())
 					hash := sha256.Sum256([]byte(txHashStr))
-
 					dbTransactions[i] = &model.Tx{
 						TxHash:          hex.EncodeToString(hash[:]),
 						BlockHeight:     int64(appliedIndex),
@@ -128,41 +124,48 @@ func (cn *ConsensusNode) applyLogs_nl() {
 					}
 				}
 				if err := tx.Tx.CreateInBatches(dbTransactions, 100); err != nil {
-					return fmt.Errorf("failed to create transactions in db: %w", err)
+					return fmt.Errorf("创建交易记录失败: %w", err)
 				}
 			}
 			return nil
 		})
 
 		if err != nil {
-			log.Printf("[Node %d] FATAL: Failed to apply block %d to database: %v. Halting application.", cn.id, appliedIndex, err)
+			cn.logEventToDBAsync("ERROR", fmt.Sprintf("应用区块 %d 到数据库失败: %v。应用中止！", appliedIndex, err))
 			cn.lastApplied--
 			return
 		}
 
-		log.Printf("[Node %d] Successfully applied and persisted block %d with %d transaction(s).\n", cn.id, appliedIndex, len(transactions))
+		cn.logEventToDBAsync("SUCCESS", fmt.Sprintf("成功应用并持久化区块 %d，包含 %d 条交易", appliedIndex, len(transactions)))
 	}
 }
-
-// --- Raft核心逻辑 (保持不变) ---
 
 func (cn *ConsensusNode) ConnectToPeers() {
 	cn.mu.Lock()
 	defer cn.mu.Unlock()
 	for peerID, addr := range cn.peer {
 		if peerID != cn.id {
-			conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+			conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
-				log.Printf("[Node %d] Failed to dial peer %d at %s: %v. Will retry later.\n", cn.id, peerID, addr, err)
+				// 这种基础连接日志保留在标准输出
+				log.Printf("[Node %d] 连接 gRPC 节点 %d (%s) 失败: %v。稍后将重试。\n", cn.id, peerID, addr, err)
 				continue
 			}
 			cn.peerClients[peerID] = raft.NewRaftServiceClient(conn)
-			log.Printf("[Node %d] Successfully connected to peer %d at %s.\n", cn.id, peerID, addr)
+			cn.logEventToDBAsync("SUCCESS", fmt.Sprintf("node%v成功连接到node%d (%s)", cn.id, peerID, addr))
 		}
 	}
 }
 
 func (cn *ConsensusNode) Run() {
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			cn.updateNodeStatusInDBAsync()
+		}
+	}()
 	cn.resetElectionTimer()
 }
 
@@ -190,7 +193,7 @@ func (cn *ConsensusNode) Propose(data []byte) (bool, int) {
 	newBlock.Hash = hex.EncodeToString(hash[:])
 
 	cn.log = append(cn.log, newBlock)
-	log.Printf("[Node %d Leader] Proposed new block at index %d, term %d. Log length: %d\n", cn.id, len(cn.log)-1, cn.currentTerm, len(cn.log))
+	cn.logEventToDBAsync("INFO", fmt.Sprintf("提议新区块 (index: %d, term: %d)。日志长度: %d", len(cn.log)-1, cn.currentTerm, len(cn.log)))
 
 	cn.matchIndex[cn.id] = len(cn.log) - 1
 	cn.nextIndex[cn.id] = len(cn.log)
@@ -202,13 +205,15 @@ func (cn *ConsensusNode) becomeFollower_nl(term int) {
 	if cn.state == Leader {
 		if cn.blockPacker != nil {
 			cn.blockPacker.Stop()
+			cn.logEventToDBAsync("WARNING", "Leader 状态终止，停止打包区块")
 		}
 	}
 	cn.state = Follower
 	cn.currentTerm = term
 	cn.votedFor = -1
-	log.Printf("[Node %d] Becoming Follower in term %d.\n", cn.id, cn.currentTerm)
+	cn.logEventToDBAsync("INFO", fmt.Sprintf("node%v转变为 Follower，任期为 %d",cn.id, cn.currentTerm))
 	cn.resetElectionTimer_nl()
+	go cn.updateNodeStatusInDBAsync()
 }
 
 func (cn *ConsensusNode) resetElectionTimer_nl() {
@@ -235,7 +240,7 @@ func (cn *ConsensusNode) startElection() {
 	cn.currentTerm++
 	cn.votedFor = cn.id
 	votes := 1
-	log.Printf("[Node %d] Election timer expired. Starting election for term %d.\n", cn.id, cn.currentTerm)
+	cn.logEventToDBAsync("INFO", fmt.Sprintf("选举计时器超时，开始为任期 %d 进行选举", cn.currentTerm))
 
 	cn.resetElectionTimer_nl()
 
@@ -271,9 +276,8 @@ func (cn *ConsensusNode) startElection() {
 
 				if reply.VoteGranted {
 					votes++
-					log.Printf("[Node %d] Received vote from Node %d. Total votes: %d\n", cn.id, peerID, votes)
+					cn.logEventToDBAsync("INFO", fmt.Sprintf("获得来自节点 %d 的选票，总票数: %d", peerID, votes))
 					if votes > len(cn.peer)/2 {
-						log.Printf("[Node %d] Won election with %d votes. Becoming Leader!\n", cn.id, votes)
 						cn.becomeLeader_nl()
 					}
 				}
@@ -300,7 +304,7 @@ func (cn *ConsensusNode) becomeLeader_nl() {
 	}
 	cn.matchIndex[cn.id] = lastLogIndex
 
-	log.Printf("[Node %d] Became Leader for term %d!\n", cn.id, cn.currentTerm)
+	cn.logEventToDBAsync("SUCCESS", fmt.Sprintf("node%v 当选，成为任期 %d 的 Leader！", cn.id, cn.currentTerm))
 
 	for peerID := range cn.peer {
 		if peerID != cn.id {
@@ -310,6 +314,7 @@ func (cn *ConsensusNode) becomeLeader_nl() {
 
 	cn.blockPacker = time.NewTicker(blockPackagingInterval)
 	go cn.blockPackingLoop()
+	go cn.updateNodeStatusInDBAsync()
 }
 
 func (cn *ConsensusNode) blockPackingLoop() {
@@ -335,10 +340,10 @@ func (cn *ConsensusNode) blockPackingLoop() {
 		cn.txPool = make([]*raft.Transaction, 0)
 		cn.mu.Unlock()
 
-		log.Printf("[Node %d Leader] Packing %d transactions into a new block.\n", cn.id, len(txsToPack))
+		cn.logEventToDBAsync("INFO", fmt.Sprintf("打包 %d 条交易到新区块中", len(txsToPack)))
 		data, err := json.Marshal(txsToPack)
 		if err != nil {
-			log.Printf("[Node %d Leader] ERROR: Failed to marshal transactions: %v\n", cn.id, err)
+			cn.logEventToDBAsync("ERROR", fmt.Sprintf("序列化交易失败: %v", err))
 			continue
 		}
 		cn.Propose(data)
@@ -360,7 +365,7 @@ func (cn *ConsensusNode) replicationLoopForPeer(peerID int) {
 		prevLogIndex := nextIdx - 1
 
 		if prevLogIndex < 0 {
-			log.Printf("[Node %d Leader] ERROR: prevLogIndex for peer %d is %d. This should not happen.", cn.id, peerID, prevLogIndex)
+			cn.logEventToDBAsync("ERROR", fmt.Sprintf("对节点 %d 的 prevLogIndex 为 %d，这是异常情况！", peerID, prevLogIndex))
 			cn.mu.Unlock()
 			time.Sleep(1 * time.Second)
 			continue
@@ -412,9 +417,9 @@ func (cn *ConsensusNode) replicationLoopForPeer(peerID int) {
 
 			if cn.nextIndex[peerID] > 1 {
 				cn.nextIndex[peerID]--
-				log.Printf("[Node %d Leader] Node %d rejected AppendEntries. Retrying with nextIndex = %d\n", cn.id, peerID, cn.nextIndex[peerID])
+				cn.logEventToDBAsync("WARNING", fmt.Sprintf("节点 %d 拒绝 AppendEntries，重试 nextIndex = %d", peerID, cn.nextIndex[peerID]))
 			} else {
-				log.Printf("[Node %d Leader] Node %d rejected AppendEntries, and nextIndex is already 1. Holding.", cn.id, peerID)
+				cn.logEventToDBAsync("WARNING", fmt.Sprintf("节点 %d 拒绝 AppendEntries，且 nextIndex 已为1，暂停复制", peerID))
 			}
 			cn.mu.Unlock()
 		}
@@ -433,7 +438,7 @@ func (cn *ConsensusNode) updateCommitIndex_nl() {
 	newCommitIndex := matchIndexes[majority-1]
 
 	if newCommitIndex > cn.commitIndex && cn.log[newCommitIndex].Term == int64(cn.currentTerm) {
-		log.Printf("[Node %d Leader] Advancing commitIndex from %d to %d\n", cn.id, cn.commitIndex, newCommitIndex)
+		cn.logEventToDBAsync("SUCCESS", fmt.Sprintf("多数节点已匹配，推进 commitIndex 从 %d 到 %d", cn.commitIndex, newCommitIndex))
 		cn.commitIndex = newCommitIndex
 		cn.applyLogs_nl()
 	}
@@ -459,10 +464,10 @@ func (cn *ConsensusNode) RequestVote(ctx context.Context, args *raft.RequestVote
 	if (cn.votedFor == -1 || cn.votedFor == int(args.CandidateId)) && isLogOk {
 		cn.votedFor = int(args.CandidateId)
 		reply.VoteGranted = true
-		log.Printf("[Node %d] Voted for Node %d in term %d.\n", cn.id, args.CandidateId, cn.currentTerm)
+		cn.logEventToDBAsync("INFO", fmt.Sprintf("node%v投票给节点 %d (任期 %d)",cn.id, args.CandidateId, cn.currentTerm))
 		cn.resetElectionTimer_nl()
 	} else {
-		log.Printf("[Node %d] Rejected vote for Node %d. (votedFor=%d, isLogOk=%t)\n", cn.id, args.CandidateId, cn.votedFor, isLogOk)
+		cn.logEventToDBAsync("INFO", fmt.Sprintf("node%v拒绝为节点 %d 投票 (votedFor=%d, isLogOk=%t)",cn.id, args.CandidateId, cn.votedFor, isLogOk))
 	}
 
 	reply.Term = int32(cn.currentTerm)
@@ -488,12 +493,12 @@ func (cn *ConsensusNode) AppendEntries(ctx context.Context, args *raft.AppendEnt
 
 	lastLogIndex, _ := cn.getLastLogInfo_nl()
 	if int(args.PrevLogIndex) > lastLogIndex {
-		log.Printf("[Node %d Follower] Rejected AppendEntries from Leader %d: PrevLogIndex %d is out of bounds (my last index is %d)\n", cn.id, args.LeaderId, args.PrevLogIndex, lastLogIndex)
+		cn.logEventToDBAsync("WARNING", fmt.Sprintf("拒绝 Leader %d 的 AppendEntries: PrevLogIndex %d 超出本地日志范围 (本地最新: %d)", args.LeaderId, args.PrevLogIndex, lastLogIndex))
 		return reply, nil
 	}
 
 	if cn.log[args.PrevLogIndex].Term != int64(args.PrevLogTerm) {
-		log.Printf("[Node %d Follower] Rejected AppendEntries from Leader %d: Term mismatch at index %d. (MyTerm: %d, LeaderTerm: %d)\n", cn.id, args.LeaderId, args.PrevLogIndex, cn.log[args.PrevLogIndex].Term, args.PrevLogTerm)
+		cn.logEventToDBAsync("WARNING", fmt.Sprintf("拒绝 Leader %d 的 AppendEntries: 在 index %d 上任期不匹配 (我的: %d, Leader的: %d)", args.LeaderId, args.PrevLogIndex, cn.log[args.PrevLogIndex].Term, args.PrevLogTerm))
 		return reply, nil
 	}
 
@@ -512,7 +517,7 @@ func (cn *ConsensusNode) AppendEntries(ctx context.Context, args *raft.AppendEnt
 			entriesToAppend := args.Entries[conflictIndex-(int(args.PrevLogIndex)+1):]
 			cn.log = append(cn.log, entriesToAppend...)
 		}
-		log.Printf("[Node %d Follower] Appended/updated logs from Leader %d. My log length is now %d.\n", cn.id, args.LeaderId, len(cn.log))
+		cn.logEventToDBAsync("INFO", fmt.Sprintf("从 Leader %d 同步日志。当前日志长度: %d", args.LeaderId, len(cn.log)))
 	}
 
 	if args.LeaderCommit > int32(cn.commitIndex) {
@@ -534,7 +539,7 @@ func (cn *ConsensusNode) SubmitTransaction(ctx context.Context, tx *raft.Transac
 	}
 
 	cn.txPool = append(cn.txPool, tx)
-	log.Printf("[Node %d Leader] Received a new transaction, txPool size is now %d\n", cn.id, len(cn.txPool))
+	cn.logEventToDBAsync("INFO", fmt.Sprintf("收到新交易，交易池大小变为 %d", len(cn.txPool)))
 
 	txHashStr := fmt.Sprintf("%s%s", tx.SenderPublicKey, time.Now().String())
 	hash := sha256.Sum256([]byte(txHashStr))
@@ -630,4 +635,68 @@ func (cn *ConsensusNode) IsLeader() (bool, int) {
 	cn.mu.Lock()
 	defer cn.mu.Unlock()
 	return cn.state == Leader, cn.currentTerm
+}
+
+func (cn *ConsensusNode) updateNodeStatusInDBAsync() {
+	cn.mu.Lock()
+	var roleStr string
+	switch cn.state {
+	case Follower:
+		roleStr = "Follower"
+	case Candidate:
+		roleStr = "Candidate"
+	case Leader:
+		roleStr = "Leader"
+	}
+
+	nodeInfo := &model.Node{
+		NodeID:        int32(cn.id),
+		Address:       cn.peer[cn.id],
+		Role:          roleStr,
+		Term:          int32(cn.currentTerm),
+		CommitIndex:   int32(cn.commitIndex),
+		LastApplied:   int32(cn.lastApplied),
+		Status:        "active",
+		LastHeartbeat: time.Now(),
+	}
+	cn.mu.Unlock()
+
+	go func() {
+		q := query.Use(resource.GormServe)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		err := q.Node.WithContext(ctx).Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "node_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"role", "term", "commit_index", "last_applied", "status", "last_heartbeat", "address"}),
+		}).Create(nodeInfo)
+
+		if err != nil {
+			log.Printf("[Node %d] (async) Failed to upsert node status to DB: %v", nodeInfo.NodeID, err)
+		}
+	}()
+}
+
+// logEventToDBAsync 异步地将事件记录到数据库，不会阻塞主流程
+func (cn *ConsensusNode) logEventToDBAsync(level, message string) {
+	nodeID := cn.id
+	go func() {
+		if resource.GormServe == nil {
+			log.Printf("[Node %d] Gorm DB not initialized. DB Log skipped: %s - %s", nodeID, level, message)
+			return
+		}
+		q := query.Use(resource.GormServe)
+		logEntry := &model.SystemLog{
+			Timestamp: time.Now(),
+			NodeID:    int32(nodeID),
+			Level:     level,
+			Message:   message,
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := q.SystemLog.WithContext(ctx).Create(logEntry); err != nil {
+			// 如果数据库日志自身失败，回退到标准输出
+			log.Printf("[Node %d] (async) Failed to write event log to DB: %v", nodeID, err)
+		}
+	}()
 }

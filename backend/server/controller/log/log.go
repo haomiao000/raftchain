@@ -4,18 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"math/rand"
-	"strings"
+	"github.com/haomiao000/raftchain/library/query"
+	"github.com/haomiao000/raftchain/library/resource"
 	"time"
 )
-
-// LogEntry 定义了单条日志的结构
-type LogEntry struct {
-	NodeID    string `json:"node_id"`
-	Timestamp string `json:"timestamp"`
-	Message   string `json:"message"`
-	Level     string `json:"level"`
-}
 
 type LogFilterParams struct {
 	Page      int    `form:"page,default=1"`
@@ -43,108 +35,127 @@ type Pagination struct {
 
 // GetSystemLogs 获取系统日志的业务逻辑 (当前为模拟)
 func GetSystemLogs(ctx context.Context, limit int) ([]LogEntry, error) {
-	// 在真实应用中，这里会从日志文件、数据库或日志服务中查询
-	// 目前，我们返回模拟数据
-	levels := []string{"INFO", "WARNING", "ERROR", "SUCCESS"}
-	messages := []string{"心跳检测成功", "收到投票请求 from Node2", "日志条目已复制到大多数节点", "Leader选举超时，开始新一轮选举", "成功应用区块 #1256"}
+    q := query.Use(resource.GormServe)
 
-	logs := make([]LogEntry, 0, limit)
-	for i := 0; i < limit; i++ {
-		log := LogEntry{
-			Timestamp: time.Now().Add(time.Duration(-i*5) * time.Second).Format("2006-01-02 15:04:05"),
-			Level:     levels[rand.Intn(len(levels))],
-			Message:   fmt.Sprintf("Node%d: %s", rand.Intn(4)+1, messages[rand.Intn(len(messages))]),
-		}
-		logs = append(logs, log)
-	}
+    // 从数据库查询最新的日志
+    dbLogs, err := q.SystemLog.WithContext(ctx).Order(q.SystemLog.Timestamp.Desc()).Limit(limit).Find()
+    if err != nil {
+        return nil, fmt.Errorf("从数据库获取日志失败: %w", err)
+    }
 
-	return logs, nil
+    // 格式化为 API 响应
+    apiLogs := make([]LogEntry, len(dbLogs))
+    for i, log := range dbLogs {
+        apiLogs[i] = LogEntry{
+            NodeID:    fmt.Sprintf("Node-%d", log.NodeID),
+            Timestamp: log.Timestamp.Format("2006-01-02 15:04:05"),
+            Message:   log.Message,
+            Level:     log.Level,
+        }
+    }
+
+    return apiLogs, nil
+}
+type LogRequest struct {
+	Page     int    `form:"page"`
+	PageSize int    `form:"pageSize"`
+	Query    string `form:"query"`
+	Level    string `form:"level"`
+	NodeID   string `form:"node_id"`
 }
 
+// LogEntry 定义了返回给前端的单条日志格式 (保持不变)
+type LogEntry struct {
+	NodeID    string `json:"node_id"`
+	Timestamp string `json:"timestamp"`
+	Message   string `json:"message"`
+	Level     string `json:"level"`
+}
+// GetAdvancedLogs 从数据库中获取并筛选日志 (核心逻辑)
 func GetAdvancedLogs(ctx context.Context, params LogFilterParams) (*PaginatedLogResult, error) {
-	// 在真实应用中，这些筛选条件会被转换成SQL查询
-	// 当前，我们在模拟数据上执行这些筛选
+	// 1. 初始化 GORM 查询
+	q := query.Use(resource.GormServe)
+	logQuery := q.SystemLog.WithContext(ctx)
 
-	// 1. 生成全量模拟数据
-	allLogs := generateAllMockLogs(10) // 生成一个较大的数据集用于筛选
-
-	// 2. 执行筛选
-	var filteredLogs []LogEntry
-	for _, log := range allLogs {
-		// 关键字筛选
-		if params.Keyword != "" && !strings.Contains(strings.ToLower(log.Message), strings.ToLower(params.Keyword)) {
-			continue
-		}
-		// 级别筛选
-		if params.Level != "" && log.Level != params.Level {
-			continue
-		}
-		// 节点筛选 (注意：我们的模拟数据node_id是 "Node-X" 格式)
-		if params.NodeID != "" && log.NodeID != fmt.Sprintf("Node-%s", params.NodeID) {
-			continue
-		}
-		// 日期筛选
-		logTime, _ := time.Parse("2006-01-02 15:04:05", log.Timestamp)
-		if params.StartDate != "" {
-			startTime, err := time.Parse("2006-01-02", params.StartDate)
-			if err == nil && logTime.Before(startTime) {
-				continue
+	// 2. 根据前端参数，动态构建 WHERE 查询条件
+	if params.Keyword != "" {
+		logQuery = logQuery.Where(q.SystemLog.Message.Like("%" + params.Keyword + "%"))
+	}
+	if params.Level != "" {
+		logQuery = logQuery.Where(q.SystemLog.Level.Eq(params.Level))
+	}
+	if params.NodeID != "" {
+		// 从 "Node-1" 或 "1" 这种格式中解析出数字 ID
+		var nodeNum int
+		// 优先尝试 "Node-1" 格式
+		if _, err := fmt.Sscanf(params.NodeID, "Node-%d", &nodeNum); err != nil {
+			// 如果失败，尝试直接转换数字 "1"
+			if _, err := fmt.Sscanf(params.NodeID, "%d", &nodeNum); err == nil {
+				logQuery = logQuery.Where(q.SystemLog.NodeID.Eq(int32(nodeNum)))
 			}
+		} else {
+			logQuery = logQuery.Where(q.SystemLog.NodeID.Eq(int32(nodeNum)))
 		}
-		if params.EndDate != "" {
-			endTime, err := time.Parse("2006-01-02", params.EndDate)
-			if err == nil {
-				// 包含当天
-				endTime = endTime.Add(24*time.Hour - 1*time.Nanosecond)
-				if logTime.After(endTime) {
-					continue
-				}
-			}
+	}
+    if params.StartDate != "" {
+        startTime, err := time.Parse("2006-01-02", params.StartDate)
+        if err == nil {
+            // Gte = Greater than or equal to (>=)
+            logQuery = logQuery.Where(q.SystemLog.Timestamp.Gte(startTime))
+        }
+    }
+    if params.EndDate != "" {
+        endTime, err := time.Parse("2006-01-02", params.EndDate)
+        if err == nil {
+            // 为了包含当天，将时间设为当天的 23:59:59
+            endTime = endTime.Add(24*time.Hour - 1*time.Nanosecond)
+            // Lte = Less than or equal to (<=)
+            logQuery = logQuery.Where(q.SystemLog.Timestamp.Lte(endTime))
+        }
+    }
+
+
+	// 3. 获取符合筛选条件的总日志数 (用于分页)
+	totalItems, err := logQuery.Count()
+	if err != nil {
+		return nil, fmt.Errorf("获取日志总数失败: %w", err)
+	}
+
+	// 4. 根据分页参数，获取当前页的日志数据
+    if params.Page <= 0 {
+        params.Page = 1
+    }
+    if params.Limit <= 0 {
+        params.Limit = 20
+    }
+	offset := (params.Page - 1) * params.Limit
+	// 按时间倒序排列，最新的日志在最前面
+	dbLogs, err := logQuery.Order(q.SystemLog.Timestamp.Desc()).Offset(offset).Limit(params.Limit).Find()
+	if err != nil {
+		return nil, fmt.Errorf("查询日志失败: %w", err)
+	}
+
+	// 5. 将数据库模型转换为前端需要的 JSON 格式
+	apiLogs := make([]LogEntry, len(dbLogs))
+	for i, log := range dbLogs {
+		apiLogs[i] = LogEntry{
+			NodeID:    fmt.Sprintf("Node-%d", log.NodeID),
+			Timestamp: log.Timestamp.Format("2006-01-02 15:04:05"),
+			Message:   log.Message,
+			Level:     log.Level,
 		}
-
-		filteredLogs = append(filteredLogs, log)
 	}
-
-	// 3. 执行分页
-	totalItems := int64(len(filteredLogs))
-	totalPages := int(math.Ceil(float64(totalItems) / float64(params.Limit)))
-	startIndex := (params.Page - 1) * params.Limit
-	endIndex := startIndex + params.Limit
-	if startIndex > len(filteredLogs) {
-		startIndex = len(filteredLogs)
-	}
-	if endIndex > len(filteredLogs) {
-		endIndex = len(filteredLogs)
-	}
-	paginatedLogs := filteredLogs[startIndex:endIndex]
-
-	// 4. 组装返回结果
-	result := &PaginatedLogResult{
-		Logs: paginatedLogs,
-		Pagination: Pagination{
-			CurrentPage: params.Page,
-			TotalPages:  totalPages,
-			TotalItems:  totalItems,
-			PerPage:     params.Limit,
-		},
-	}
+    
+    // 6. 组装最终返回结果
+    result := &PaginatedLogResult{
+        Logs:       apiLogs,
+        Pagination: Pagination{
+            CurrentPage: params.Page,
+            TotalPages:  int(math.Ceil(float64(totalItems) / float64(params.Limit))),
+            TotalItems:  totalItems,
+            PerPage:     params.Limit,
+        },
+    }
 
 	return result, nil
-}
-
-// generateAllMockLogs 是一个辅助函数，用于生成测试数据
-func generateAllMockLogs(count int) []LogEntry {
-	// ... (这个函数和 GetSystemLogs 里的模拟逻辑类似, 但用于生成一个固定的大集合)
-	logs := make([]LogEntry, count)
-	levels := []string{"INFO", "WARNING", "ERROR", "SUCCESS"}
-	messages := []string{"心跳检测成功", "收到投票请求", "日志条目已复制", "Leader选举超时", "成功应用区块", "数据库连接失败", "配置已重新加载"}
-	for i := 0; i < count; i++ {
-		logs[i] = LogEntry{
-			Timestamp: time.Now().Add(time.Duration(-i*15) * time.Minute).Format("2006-01-02 15:04:05"),
-			Level:     levels[rand.Intn(len(levels))],
-			Message:   fmt.Sprintf("Node%d: %s #%d", rand.Intn(4)+1, messages[rand.Intn(len(messages))], rand.Intn(1000)),
-			NodeID:    fmt.Sprintf("Node-%d", rand.Intn(4)+1), // 添加 NodeID 以便筛选
-		}
-	}
-	return logs
 }

@@ -456,7 +456,9 @@
             try {
                 // --- 修改：从模拟数据改为真实API调用 ---
                 const data = await fetchWithAuth(`${API_BASE_URL}/api/v1/node/GetNodeStatus`);
+                populateControlNodeDropdown(data);
                 renderNodeStatus(data);
+                
             } catch (error) {
                 showError(container, error, '节点状态');
             }

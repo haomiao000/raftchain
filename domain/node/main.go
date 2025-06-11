@@ -109,9 +109,9 @@ func main() {
 
 	log.Println("Waiting for peers to start...")
 	time.Sleep(3 * time.Second)
-
 	consensusNode.ConnectToPeers()
 	consensusNode.Run()
 
 	select {}
 }
+
