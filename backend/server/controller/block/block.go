@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"time"
+	"github.com/haomiao000/raftchain/backend/client"
 )
 
 // Block 定义了区块列表中的区块结构
@@ -52,36 +52,37 @@ type Pagination struct {
 const totalMockBlocks = 500
 const latestBlockHeight = 12850
 
-// GetBlocks 获取分页的区块列表 (模拟)
+// GetBlocks 获取分页的区块列表
 func GetBlocks(ctx context.Context, page, limit int) (*PaginatedBlockResult, error) {
-	totalPages := int(math.Ceil(float64(totalMockBlocks) / float64(limit)))
+	// --- 修改：调用Raft客户端，不再使用模拟数据 ---
+	raftClient := client.GetRaftClient()
+	grpcReply, err := raftClient.GetBlocks(int32(page), int32(limit))
+	if err != nil {
+		return nil, err
+	}
 	
-	blocks := make([]Block, 0, limit)
-	startHeight := latestBlockHeight - int64((page-1)*limit)
-
-	for i := 0; i < limit; i++ {
-		currentHeight := startHeight - int64(i)
-		if currentHeight <= 0 {
-			break
-		}
-		blocks = append(blocks, Block{
-			Height:           currentHeight,
-			Timestamp:        time.Now().Add(time.Duration(-i*10) * time.Second).Format("2006-01-02 15:04:05"),
-			Hash:             fmt.Sprintf("0x%x", rand.Int63()),
-			PreviousHash:     fmt.Sprintf("0x%x", rand.Int63()),
-			TransactionCount: rand.Intn(10),
+	// 将gRPC的响应格式转换为API的响应格式
+	blocksForAPI := make([]Block, 0, len(grpcReply.Blocks))
+	for _, b := range grpcReply.Blocks {
+		blocksForAPI = append(blocksForAPI, Block{
+			Height:           b.Term, // 注意：这里可能需要根据你的Block定义调整
+			Timestamp:        "", // gRPC的Block没有Timestamp，可以后续添加
+			Hash:             b.Hash,
+			PreviousHash:     b.PrevHash,
+			TransactionCount: 0, // gRPC的Block没有直接的tx count，可以后续添加
 		})
 	}
-
+	
 	result := &PaginatedBlockResult{
-		Blocks: blocks,
+		Blocks: blocksForAPI,
 		Pagination: Pagination{
-			CurrentPage: page,
-			TotalPages:  totalPages,
-			TotalItems:  totalMockBlocks,
-			PerPage:     limit,
+			CurrentPage: int(grpcReply.Pagination.CurrentPage),
+			TotalPages:  int(grpcReply.Pagination.TotalPages),
+			TotalItems:  grpcReply.Pagination.TotalItems,
+			PerPage:     int(grpcReply.Pagination.PerPage),
 		},
 	}
+
 	return result, nil
 }
 

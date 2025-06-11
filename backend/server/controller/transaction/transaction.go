@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"time"
+	"encoding/json"
+	"log"
+
+	"github.com/haomiao000/raftchain/backend/client" // --- 新增import
+	"github.com/haomiao000/raftchain/domain/node/rpc/raft" // --- 新增import
 )
 
 // SubmissionData 定义了接收交易提交的数据结构
@@ -34,24 +38,31 @@ type PoolEntry struct {
 
 // SubmitTransaction 处理交易提交的业务逻辑 (当前为模拟)
 func SubmitTransaction(ctx context.Context, txData SubmissionData) (*SubmissionResult, error) {
-	// 在真实应用中，这里会进行：
-	// 1. 验证签名 (使用 SenderPublicKey)
-	// 2. 校验交易数据的合法性 (例如，检查账户余额)
-	// 3. 将交易广播到网络中的交易池
+	// 1. 将前端传来的payload（map[string]interface{}）序列化为bytes
+	payloadBytes, err := json.Marshal(txData.Payload)
+	if err != nil {
+		log.Printf("Failed to marshal payload: %v\n", err)
+		return nil, fmt.Errorf("invalid payload format")
+	}
 
-	// 目前，我们仅打印接收到的数据并返回一个模拟的成功响应
-	fmt.Printf("接收到新交易: \n")
-	fmt.Printf("  - 类型: %s\n", txData.Type)
-	fmt.Printf("  - 发送者公钥: %s\n", txData.SenderPublicKey)
-	fmt.Printf("  - 交易内容 (Payload): %+v\n", txData.Payload)
+	// 2. 创建gRPC格式的Transaction对象
+	grpcTx := &raft.Transaction{
+		Type:            txData.Type,
+		SenderPublicKey: txData.SenderPublicKey,
+		Payload:         payloadBytes,
+	}
 
-	// 模拟生成一个交易哈希
-	rand.Seed(time.Now().UnixNano())
-	txHash := fmt.Sprintf("0x%x", rand.Int63())
+	// 3. 通过Raft客户端管理器将交易提交到集群
+	raftClient := client.GetRaftClient()
+	reply, err := raftClient.SubmitTransaction(grpcTx)
+	if err != nil {
+		return nil, err
+	}
 
+	// 4. 组装返回给前端的结果
 	result := &SubmissionResult{
-		Message:         "交易已成功提交到交易池",
-		TransactionHash: txHash,
+		Message:         "交易已成功提交到Raft集群",
+		TransactionHash: reply.TxHash,
 	}
 
 	return result, nil

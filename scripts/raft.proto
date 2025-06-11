@@ -1,91 +1,81 @@
 syntax = "proto3";
 
-package consensus; // 包名，可以根据你的项目结构调整
+package raft;
 
-option go_package = "raft/"; // 生成的 Go 代码的包路径
+option go_package = "./raft";
 
-// Raft 服务定义了节点间的 RPC 调用
+// Raft服务定义
 service RaftService {
-  // RequestVote RPC 由 Candidate 调用，用于收集选票
-  rpc RequestVote(RequestVoteArgs) returns (RequestVoteReply) {}
-
-  // AppendEntries RPC 由 Leader 调用，用于复制日志条目和作为心跳
   rpc AppendEntries(AppendEntriesArgs) returns (AppendEntriesReply) {}
-
-  // InstallSnapshot RPC 由 Leader 调用，用于向 Follower 发送快照分片 (如果实现快照)
-  // rpc InstallSnapshot(InstallSnapshotArgs) returns (InstallSnapshotReply) {}
-
-  // (可选) 客户端提交命令的接口，如果希望通过 gRPC 而非 HTTP 提交
-  // rpc SubmitCommand(CommandRequest) returns (CommandReply) {}
+  rpc RequestVote(RequestVoteArgs) returns (RequestVoteReply) {}
+  
+  // --- 新增RPC方法 ---
+  rpc SubmitTransaction(Transaction) returns (TransactionReply) {}
+  
+  // --- 新增RPC方法，用于查询区块 ---
+  rpc GetBlocks(GetBlocksArgs) returns (GetBlocksReply) {}
 }
 
-// LogEntry 消息类型，对应 Raft 日志中的一个条目
-message LogEntry {
-  int32 term    = 1; // 日志条目创建时的任期号 (使用 int32 通常足够，且与 gRPC 默认类型匹配)
-  int64 index   = 2; // 日志条目的索引 (使用 int64 以防日志非常长)
-  bytes command = 3; // 需要被状态机执行的命令 (例如，序列化后的交易批次或区块)
+// --- 新增消息体 ---
+// 外部提交的交易结构
+message Transaction {
+    string type = 1;
+    string sender_public_key = 2;
+    bytes  payload = 3; // 使用bytes来灵活承载不同类型的json payload
 }
 
-// RequestVoteArgs 是 RequestVote RPC 的参数消息类型
-message RequestVoteArgs {
-  int32 term          = 1; // Candidate 的任期号
-  int32 candidate_id  = 2; // Candidate 的 ID
-  int64 last_log_index = 3; // Candidate 最后日志条目的索引值
-  int32 last_log_term  = 4; // Candidate 最后日志条目的任期号
+// 提交交易后的响应
+message TransactionReply {
+    bool   success = 1;
+    string tx_hash = 2; // 交易哈希
+    string leader_hint = 3; // 如果当前节点不是leader，可以提示leader地址
 }
 
-// RequestVoteReply 是 RequestVote RPC 的返回值消息类型
-message RequestVoteReply {
-  int32 term         = 1; // CurrentTerm, for candidate to update itself
-  bool  vote_granted = 2; // True means candidate received vote
-}
 
-// AppendEntriesArgs 是 AppendEntries RPC (包括心跳) 的参数消息类型
+// Block, AppendEntriesArgs, AppendEntriesReply, RequestVoteArgs, RequestVoteReply 保持不变...
+message Block {
+    int64  term = 1;
+    bytes  data = 2;
+    string hash = 3;
+    string prev_hash = 4;
+}
 message AppendEntriesArgs {
-  int32 term          = 1; // Leader's term
-  int32 leader_id     = 2; // So follower can redirect clients
-  int64 prev_log_index = 3; // Index of log entry immediately preceding new ones
-  int32 prev_log_term  = 4; // Term of prevLogIndex entry
-  repeated LogEntry entries = 5; // Log entries to store (empty for heartbeat)
-  int64 leader_commit = 6; // Leader’s commitIndex
+    int32   term = 1;
+    int32   leader_id = 2;
+    int32   prev_log_index = 3;
+    int32   prev_log_term = 4;
+    repeated Block entries = 5;
+    int32   leader_commit = 6;
 }
-
-// AppendEntriesReply 是 AppendEntries RPC 的返回值消息类型
 message AppendEntriesReply {
-  int32 term    = 1; // CurrentTerm, for leader to update itself
-  bool  success = 2; // True if follower contained entry matching prevLogIndex and prevLogTerm
-
-  // 可选的优化字段，用于快速定位日志冲突点
-  int32 conflict_term  = 3; // Follower中与Leader的prevLogIndex冲突的日志条目的任期号 (如果存在, 否则为0或-1)
-  int64 conflict_index = 4; // Follower中第一个任期号为ConflictTerm的日志条目的索引 (如果存在, 否则为0或-1)
+    int32  term = 1;
+    bool   success = 2;
+}
+message RequestVoteArgs {
+    int32  term = 1;
+    int32  candidate_id = 2;
+    int32  last_log_index = 3;
+    int32  last_log_term = 4;
+}
+message RequestVoteReply {
+    int32  term = 1;
+    bool   vote_granted = 2;
 }
 
-// --- 如果实现快照，可以取消以下注释 ---
-/*
-message InstallSnapshotArgs {
-  int32 term              = 1; // Leader's term
-  int32 leader_id         = 2; // Leader's ID
-  int64 last_included_index = 3; // The snapshot replaces all entries up through this index
-  int32 last_included_term  = 4; // Term of lastIncludedIndex
-  int64 offset            = 5; // Byte offset where chunk is positioned in the snapshot file
-  bytes data              = 6; // Raw bytes of the snapshot chunk, starting at offset
-  bool  done              = 7; // True if this is the last chunk
+// --- 新增消息体 ---
+message GetBlocksArgs {
+  int32 page = 1;
+  int32 limit = 2;
 }
 
-message InstallSnapshotReply {
-  int32 term = 1; // CurrentTerm, for leader to update itself
-}
-*/
-
-// --- 可选：客户端提交命令的接口定义 ---
-/*
-message CommandRequest {
-  bytes command = 1; // 客户端提交的命令
+message Pagination {
+  int32 current_page = 1;
+  int32 total_pages = 2;
+  int64 total_items = 3;
+  int32 per_page = 4;
 }
 
-message CommandReply {
-  bool  success    = 1; // 命令是否被 Leader 接受 (注意：这不代表命令已提交)
-  int32 leader_id  = 2; // (如果当前节点不是 Leader) 当前 Leader 的 ID，用于客户端重定向
-  string message   = 3; // 额外信息
+message GetBlocksReply {
+  repeated Block blocks = 1;
+  Pagination pagination = 2;
 }
-*/

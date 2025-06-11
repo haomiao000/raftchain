@@ -8,6 +8,7 @@ import (
 	"github.com/haomiao000/raftchain/library/ext"
 	"github.com/haomiao000/raftchain/library/resource"
 	"github.com/haomiao000/raftchain/library/query"
+	"github.com/haomiao000/raftchain/backend/client"
 
 	"github.com/spf13/viper"
 	"gorm.io/driver/mysql"
@@ -20,7 +21,13 @@ func InitBootStrap(modelInit bool) {
 		initGormModel()
 	}
 	initGorm()
+	InitRPC()
+}
 
+func InitRPC() {
+	if err := client.GetRaftClient().Init("../conf/raft.yaml"); err != nil {
+		log.Fatalf("raft client init failed, err:%s\n", err)
+	}
 }
 
 func initGormModel() {

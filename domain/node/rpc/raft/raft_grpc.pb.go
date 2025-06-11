@@ -19,20 +19,24 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RaftService_RequestVote_FullMethodName   = "/consensus.RaftService/RequestVote"
-	RaftService_AppendEntries_FullMethodName = "/consensus.RaftService/AppendEntries"
+	RaftService_AppendEntries_FullMethodName     = "/raft.RaftService/AppendEntries"
+	RaftService_RequestVote_FullMethodName       = "/raft.RaftService/RequestVote"
+	RaftService_SubmitTransaction_FullMethodName = "/raft.RaftService/SubmitTransaction"
+	RaftService_GetBlocks_FullMethodName         = "/raft.RaftService/GetBlocks"
 )
 
 // RaftServiceClient is the client API for RaftService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// Raft 服务定义了节点间的 RPC 调用
+// Raft服务定义
 type RaftServiceClient interface {
-	// RequestVote RPC 由 Candidate 调用，用于收集选票
-	RequestVote(ctx context.Context, in *RequestVoteArgs, opts ...grpc.CallOption) (*RequestVoteReply, error)
-	// AppendEntries RPC 由 Leader 调用，用于复制日志条目和作为心跳
 	AppendEntries(ctx context.Context, in *AppendEntriesArgs, opts ...grpc.CallOption) (*AppendEntriesReply, error)
+	RequestVote(ctx context.Context, in *RequestVoteArgs, opts ...grpc.CallOption) (*RequestVoteReply, error)
+	// --- 新增RPC方法 ---
+	SubmitTransaction(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*TransactionReply, error)
+	// --- 新增RPC方法，用于查询区块 ---
+	GetBlocks(ctx context.Context, in *GetBlocksArgs, opts ...grpc.CallOption) (*GetBlocksReply, error)
 }
 
 type raftServiceClient struct {
@@ -41,16 +45,6 @@ type raftServiceClient struct {
 
 func NewRaftServiceClient(cc grpc.ClientConnInterface) RaftServiceClient {
 	return &raftServiceClient{cc}
-}
-
-func (c *raftServiceClient) RequestVote(ctx context.Context, in *RequestVoteArgs, opts ...grpc.CallOption) (*RequestVoteReply, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RequestVoteReply)
-	err := c.cc.Invoke(ctx, RaftService_RequestVote_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *raftServiceClient) AppendEntries(ctx context.Context, in *AppendEntriesArgs, opts ...grpc.CallOption) (*AppendEntriesReply, error) {
@@ -63,16 +57,48 @@ func (c *raftServiceClient) AppendEntries(ctx context.Context, in *AppendEntries
 	return out, nil
 }
 
+func (c *raftServiceClient) RequestVote(ctx context.Context, in *RequestVoteArgs, opts ...grpc.CallOption) (*RequestVoteReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RequestVoteReply)
+	err := c.cc.Invoke(ctx, RaftService_RequestVote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftServiceClient) SubmitTransaction(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*TransactionReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TransactionReply)
+	err := c.cc.Invoke(ctx, RaftService_SubmitTransaction_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *raftServiceClient) GetBlocks(ctx context.Context, in *GetBlocksArgs, opts ...grpc.CallOption) (*GetBlocksReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetBlocksReply)
+	err := c.cc.Invoke(ctx, RaftService_GetBlocks_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RaftServiceServer is the server API for RaftService service.
 // All implementations must embed UnimplementedRaftServiceServer
 // for forward compatibility.
 //
-// Raft 服务定义了节点间的 RPC 调用
+// Raft服务定义
 type RaftServiceServer interface {
-	// RequestVote RPC 由 Candidate 调用，用于收集选票
-	RequestVote(context.Context, *RequestVoteArgs) (*RequestVoteReply, error)
-	// AppendEntries RPC 由 Leader 调用，用于复制日志条目和作为心跳
 	AppendEntries(context.Context, *AppendEntriesArgs) (*AppendEntriesReply, error)
+	RequestVote(context.Context, *RequestVoteArgs) (*RequestVoteReply, error)
+	// --- 新增RPC方法 ---
+	SubmitTransaction(context.Context, *Transaction) (*TransactionReply, error)
+	// --- 新增RPC方法，用于查询区块 ---
+	GetBlocks(context.Context, *GetBlocksArgs) (*GetBlocksReply, error)
 	mustEmbedUnimplementedRaftServiceServer()
 }
 
@@ -83,11 +109,17 @@ type RaftServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRaftServiceServer struct{}
 
+func (UnimplementedRaftServiceServer) AppendEntries(context.Context, *AppendEntriesArgs) (*AppendEntriesReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AppendEntries not implemented")
+}
 func (UnimplementedRaftServiceServer) RequestVote(context.Context, *RequestVoteArgs) (*RequestVoteReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RequestVote not implemented")
 }
-func (UnimplementedRaftServiceServer) AppendEntries(context.Context, *AppendEntriesArgs) (*AppendEntriesReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AppendEntries not implemented")
+func (UnimplementedRaftServiceServer) SubmitTransaction(context.Context, *Transaction) (*TransactionReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitTransaction not implemented")
+}
+func (UnimplementedRaftServiceServer) GetBlocks(context.Context, *GetBlocksArgs) (*GetBlocksReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBlocks not implemented")
 }
 func (UnimplementedRaftServiceServer) mustEmbedUnimplementedRaftServiceServer() {}
 func (UnimplementedRaftServiceServer) testEmbeddedByValue()                     {}
@@ -110,24 +142,6 @@ func RegisterRaftServiceServer(s grpc.ServiceRegistrar, srv RaftServiceServer) {
 	s.RegisterService(&RaftService_ServiceDesc, srv)
 }
 
-func _RaftService_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RequestVoteArgs)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RaftServiceServer).RequestVote(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RaftService_RequestVote_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftServiceServer).RequestVote(ctx, req.(*RequestVoteArgs))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _RaftService_AppendEntries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AppendEntriesArgs)
 	if err := dec(in); err != nil {
@@ -146,20 +160,82 @@ func _RaftService_AppendEntries_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RaftService_RequestVote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RequestVoteArgs)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftServiceServer).RequestVote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RaftService_RequestVote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftServiceServer).RequestVote(ctx, req.(*RequestVoteArgs))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RaftService_SubmitTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Transaction)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftServiceServer).SubmitTransaction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RaftService_SubmitTransaction_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftServiceServer).SubmitTransaction(ctx, req.(*Transaction))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RaftService_GetBlocks_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBlocksArgs)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftServiceServer).GetBlocks(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RaftService_GetBlocks_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftServiceServer).GetBlocks(ctx, req.(*GetBlocksArgs))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RaftService_ServiceDesc is the grpc.ServiceDesc for RaftService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RaftService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "consensus.RaftService",
+	ServiceName: "raft.RaftService",
 	HandlerType: (*RaftServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "AppendEntries",
+			Handler:    _RaftService_AppendEntries_Handler,
+		},
 		{
 			MethodName: "RequestVote",
 			Handler:    _RaftService_RequestVote_Handler,
 		},
 		{
-			MethodName: "AppendEntries",
-			Handler:    _RaftService_AppendEntries_Handler,
+			MethodName: "SubmitTransaction",
+			Handler:    _RaftService_SubmitTransaction_Handler,
+		},
+		{
+			MethodName: "GetBlocks",
+			Handler:    _RaftService_GetBlocks_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
